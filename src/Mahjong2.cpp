@@ -1801,7 +1801,7 @@ int main()
 	}
 	
 	roundOutput(outputValue);
-	outputValue["display"]["tileCnt"] = g.mountainTiles.size() - 4;
+	outputValue["display"]["tileCnt"] = (int) g.mountainTiles.size() - 4;
 	cout << randSeed; // 先确认一下随机种子
 	cout << outputValue;
 

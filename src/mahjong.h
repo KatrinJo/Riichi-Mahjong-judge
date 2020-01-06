@@ -10,6 +10,7 @@
 #include <set>
 #include <functional>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
 #include <map>
@@ -17,14 +18,9 @@
 #include <sstream>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include "jsoncpp/json.h"
+#include "json/json.h"
 
 using namespace std;
-
-// ÔÚinitÊ±¾Í»áÈ·¶¨µÄ
-//bool MenQianYi[50];
-//bool ShiXiaYi[50];
-//int FanShu[50];
 
 extern int quan;
 extern string lastTile;
@@ -34,26 +30,26 @@ extern string tileCHI;
 extern bool lastGANG;
 extern bool currGANG;
 extern bool lastBUGANG;
-//ÉÏÒ»»ØºÏÊÇ·ñÎª²¹¸Ü
+//ä¸Šä¸€å›åˆæ˜¯å¦ä¸ºè¡¥æ 
 extern bool currBUGANG;
-//µ±Ç°»ØºÏÊÇ·ñÎª²¹¸Ü ÓëÇÀ¸Ü¡¢ÁëÉÏ¿ª»¨ÓĞ¹Ø
+//å½“å‰å›åˆæ˜¯å¦ä¸ºè¡¥æ  ä¸æŠ¢æ ã€å²­ä¸Šå¼€èŠ±æœ‰å…³
 extern bool lastANGANG;
-//ÉÏÒ»»ØºÏÊÇ·ñÎª°µ¸Ü
+//ä¸Šä¸€å›åˆæ˜¯å¦ä¸ºæš—æ 
 extern bool currANGANG;
-//µ±Ç°»ØºÏÊÇ·ñÎª°µ¸Ü Óë¹úÊ¿ÎŞË«¿ÉÒÔÇÀ°µ¸ÜÓĞ¹Ø
+//å½“å‰å›åˆæ˜¯å¦ä¸ºæš—æ  ä¸å›½å£«æ— åŒå¯ä»¥æŠ¢æš—æ æœ‰å…³
 extern bool isMingPai;
-//Ö®Ç°»ØºÏÊÇ·ñÓĞÃùÅÆĞĞÎª·¢Éú ÓëµØºÍ¡¢¾ÅÖÖ¾ÅÅÆÓĞ¹Ø
+//ä¹‹å‰å›åˆæ˜¯å¦æœ‰é¸£ç‰Œè¡Œä¸ºå‘ç”Ÿ ä¸åœ°å’Œã€ä¹ç§ä¹ç‰Œæœ‰å…³
 
 extern int roundStage;
-//-2:Í¨ÖªÎ»ÖÃ
-//-1:·¢ÅÆ
-//0-3:Íæ¼ÒÃşÅÆ
-//4-7:Íæ¼Ò´ò³öÅÆºó£¬Í¨ÖªËùÓĞÍæ¼Ò
-//8-12:Íæ¼Ò¸ÜÅÆ£¬Í¨ÖªËùÓĞÍæ¼Ò
-// 13-16:Íæ¼ÒÁ¢Ö±£¬Í¨ÖªËùÓĞÍæ¼Ò
+//-2:é€šçŸ¥ä½ç½®
+//-1:å‘ç‰Œ
+//0-3:ç©å®¶æ‘¸ç‰Œ
+//4-7:ç©å®¶æ‰“å‡ºç‰Œåï¼Œé€šçŸ¥æ‰€æœ‰ç©å®¶
+//8-12:ç©å®¶æ ç‰Œï¼Œé€šçŸ¥æ‰€æœ‰ç©å®¶
+// 13-16:ç©å®¶ç«‹ç›´ï¼Œé€šçŸ¥æ‰€æœ‰ç©å®¶
 
 extern int numRestTiles;
-// »¹Ê£ÏÂ¶àÉÙÕÅÅÆ
+// è¿˜å‰©ä¸‹å¤šå°‘å¼ ç‰Œ
 
 // void init();
 
@@ -77,7 +73,7 @@ struct FanFu {
 struct Tiles {
 	string type; // KEZI, SHUNZI, JIANG
 	vector<string> part;
-	int fu; // Ö»ÓĞ¿Ì×ÓÎÒÃÇ²ÅËã·ûÊı
+	int fu; // åªæœ‰åˆ»å­æˆ‘ä»¬æ‰ç®—ç¬¦æ•°
 	Tiles();
 	Tiles(string t, vector<string> p, int f);
 
@@ -172,7 +168,7 @@ enum MianZiType
 	GANG_ZI = 2,
 };
 
-// Á½Ãæ¡¢Ç¶ÕÅ¡¢±ßÕÅ¡¢Ë«Åö¡¢µ¥Æï
+// ä¸¤é¢ã€åµŒå¼ ã€è¾¹å¼ ã€åŒç¢°ã€å•éª‘
 enum TingPaiType
 {
 	LIANG_MIAN = 0b1,
@@ -187,31 +183,37 @@ enum ActionType
 	CHI = 0,
 	PENG = 1,
 	GANG = 2,
-	JIA_GANG = 3,
+	BUGANG = 3,
+	ANGANG = 4,
 	LIZHI = 5,
+	RONG = 6,
+	TSUMO = 7
+
 };
+
+// 
 
 
 struct Player {
-	int pos; // ¡°¶«ÄÏÎ÷±±¡±£¬±àºÅÒÀ´ÎÎª0~3
-	int changFeng; // Ã¿È¦¿ªÊ¼µÄÊ±ºò¶¼Òª¸üĞÂÒ»ÏÂ
-	int numLiZhi; // ´Ó×Ô¼º´ò³öµÄµÚ¼¸ÕÅÅÆ¿ªÊ¼Á¢Ö±
-	bool isLiZhi; // ÊÇ·ñÁ¢Ö±
+	int pos; // â€œä¸œå—è¥¿åŒ—â€ï¼Œç¼–å·ä¾æ¬¡ä¸º0~3
+	int changFeng; // æ¯åœˆå¼€å§‹çš„æ—¶å€™éƒ½è¦æ›´æ–°ä¸€ä¸‹
+	int numLiZhi; // ä»è‡ªå·±æ‰“å‡ºçš„ç¬¬å‡ å¼ ç‰Œå¼€å§‹ç«‹ç›´
+	bool isLiZhi; // æ˜¯å¦ç«‹ç›´
 	bool isYiFa;
-	bool isLiuJuManGuan; // ÊÇ·ñÄÜ¹»Âú¹áÁ÷¾Ö
-	bool isZhenTing[3]; // ¸ù¾İÊÇ·ñ´ò³ö¹ıÌıÅÆÅĞ¶ÏÊÇ·ñÕñÌı
-						// [0]ÉáÕÅÕñÌı¡ª¡ª×Ô¼º´ò¹ıÁËÒªÌıµÄÅÆ£¬´ó¶àÊıÊÇÒòÎªÃ»ÒÛ£¬ÎŞ·¨ÈÙºÍ³ı·Ç»»ÌıÅÆ
-						// [1]Í¬Ñ²ÕñÌı¡ª¡ªÈı¼Ò´òÁËÒªÌıµÄÅÆ£¬µ«ÊÇÃ»Á¢Ö±Ò²Ã»ÒÛ£¬Ö»Òª×Ô¼ÒÃşÇĞ¾Í¿ÉÒÔ½â³ı
-						// [2]Á¢Ö±ÕñÌı¡ª¡ªÁ¢Ö±ÁË£¬µ«ÊÇÂ©¹ıÁËÄÜºúµÄÅÆ£¬ÎŞ·¨ÈÙºÍÖ»ÄÜ×ÔÃş
-	vector<string> handTiles; // Î´´ò³öµÄÊÖÀïµÄÅÆ
-	vector<vector<string> > anGangTiles; // °µ¸ÜÅÆ
-	vector<vector<string> > mingTiles; // ÃùÅÆ
-	vector<pair<int, string> > mingTilesOffer; // ÃùÅÆÊ±£¬ÅÆµÄÌá¹©ÕßÒÔ¼°ÅÆÊÇÊ²Ã´
+	bool isLiuJuManGuan; // æ˜¯å¦èƒ½å¤Ÿæ»¡è´¯æµå±€
+	bool isZhenTing[3]; // æ ¹æ®æ˜¯å¦æ‰“å‡ºè¿‡å¬ç‰Œåˆ¤æ–­æ˜¯å¦æŒ¯å¬
+						// [0]èˆå¼ æŒ¯å¬â€”â€”è‡ªå·±æ‰“è¿‡äº†è¦å¬çš„ç‰Œï¼Œå¤§å¤šæ•°æ˜¯å› ä¸ºæ²¡å½¹ï¼Œæ— æ³•è£å’Œé™¤éæ¢å¬ç‰Œ
+						// [1]åŒå·¡æŒ¯å¬â€”â€”ä¸‰å®¶æ‰“äº†è¦å¬çš„ç‰Œï¼Œä½†æ˜¯æ²¡ç«‹ç›´ä¹Ÿæ²¡å½¹ï¼Œåªè¦è‡ªå®¶æ‘¸åˆ‡å°±å¯ä»¥è§£é™¤
+						// [2]ç«‹ç›´æŒ¯å¬â€”â€”ç«‹ç›´äº†ï¼Œä½†æ˜¯æ¼è¿‡äº†èƒ½èƒ¡çš„ç‰Œï¼Œæ— æ³•è£å’Œåªèƒ½è‡ªæ‘¸
+	vector<string> handTiles; // æœªæ‰“å‡ºçš„æ‰‹é‡Œçš„ç‰Œ
+	vector<vector<string> > anGangTiles; // æš—æ ç‰Œ
+	vector<vector<string> > mingTiles; // é¸£ç‰Œ
+	vector<pair<int, string> > mingTilesOffer; // é¸£ç‰Œæ—¶ï¼Œç‰Œçš„æä¾›è€…ä»¥åŠç‰Œæ˜¯ä»€ä¹ˆ
 
-	vector<string> outTiles; // ÒÑ¾­´ò³öµÄÅÆ
-	vector<string> ownTiles; // ÊÖÉÏ°üÀ¨ÁË°µ¸Ü¡¢ÃùÅÆÔÚÄÚµÄËùÓĞÅÆ
+	vector<string> outTiles; // å·²ç»æ‰“å‡ºçš„ç‰Œ
+	vector<string> ownTiles; // æ‰‹ä¸ŠåŒ…æ‹¬äº†æš—æ ã€é¸£ç‰Œåœ¨å†…çš„æ‰€æœ‰ç‰Œ
 
-	// vector<vector<Tiles> > partitionTiles; // ËùÓĞµÄÊÖÅÆ£¨×¢ÒâÊÇÊÖÅÆ¡°Î´´ò³öµÄÊÖÀïµÄÅÆ¡±µÄ²ğÅÆ·½Ê½£©
+	// vector<vector<Tiles> > partitionTiles; // æ‰€æœ‰çš„æ‰‹ç‰Œï¼ˆæ³¨æ„æ˜¯æ‰‹ç‰Œâ€œæœªæ‰“å‡ºçš„æ‰‹é‡Œçš„ç‰Œâ€çš„æ‹†ç‰Œæ–¹å¼ï¼‰
 
 							 // person put out c
 	int checkHuPrerequisite(const string c, int cPlayer);
@@ -219,6 +221,8 @@ struct Player {
 	void initalize(int p, const vector<string> & hc);
 
 	vector<string> retOwnTiles(bool reCalculate = false);
+
+	bool deleteTile(const string c);
 };
 
 using YiZhongCheckFunction = std::function< FanFu (const vector<Tiles>& partition, const Player& p, string t, int pid) >; 
@@ -238,10 +242,10 @@ extern YiZhongChecker specialYiZhong[3], yakumanYiZhong[13], usualYiZhong[29];
 
 struct Event
 {
-	string tile; // ÅÆ
-	int doerID; // ĞĞÎª·¢ÆğÕß
-	int fromID; // ÅÆÀ´×ÔÓÚË­
-	int act; // ³Ô Åö ¸Ü ¼Ó¸Ü Á¢Ö±
+	string tile; // ç‰Œ
+	int doerID; // è¡Œä¸ºå‘èµ·è€…
+	int fromID; // ç‰Œæ¥è‡ªäºè°
+	int act; // åƒ ç¢° æ  åŠ æ  ç«‹ç›´
 };
 
 int getScore(int fan, int fu, bool isYakuman);
