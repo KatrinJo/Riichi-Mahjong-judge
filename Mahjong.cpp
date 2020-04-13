@@ -22,7 +22,7 @@
 using namespace std;
 
 Json::Value inputValue, outputValue;
-Json::Value promptsForDisplay, promptsForPlayers;
+Json::Value promptsForDisplay;
 int quan;
 string lastTile;
 string lastOp;
@@ -44,11 +44,11 @@ int roundStage = -2;
 //8-11:玩家杠牌，通知所有玩家
 //12-15:玩家立直，通知所有玩家
 int numRestTiles = 70;
+bool isPlayDrawnTileOnly = false;
 
-bool isTileSame(const string & a, const string & b);
+bool is_same_tile(const string & a, const string & b);
 vector<vector<int>> string_to_34_tiles(const vector<string>& vec_str, bool five_red);
-int typeMianZi(const string s);
-bool isMultiMianZi(const string s, int hasPair);
+bool is_multi_mian_zi(const string s, int hasPair);
 
 struct FanFu {
 	vector<int> names;
@@ -65,15 +65,15 @@ struct Tiles {
 	Tiles();
 	Tiles(string t, vector<string> p, int f);
 
-	bool isEqual(const Tiles & b);
 };
 
 void back(vector<vector<Tiles>>& res, vector<Tiles>& vecTiles, vector<int>& num, int N, bool hasPair, char cType);
-vector<vector<Tiles>> getCombinationOfType(vector<int>& num, char cType);
-vector<vector<Tiles>> getAllCombinations(vector<vector<int>>& nums);
-int checkTingType(vector<string> vec_s, string p, int hasPair);
-bool isYaoJiu(string t);
-int getTypeOfTile(char c);
+vector<vector<Tiles>> get_combination_of_type(vector<int>& num, char cType);
+vector<vector<Tiles>> get_all_combinations(vector<vector<int>>& nums);
+int get_ting_type(vector<string> vec_s, string p, int hasPair);
+bool is_yao_jiu(string t);
+int get_tile_type(char c);
+int get_tile_num(char c);
 
 enum YiZhongType
 {
@@ -176,7 +176,6 @@ struct Player {
 	int numLiZhi; // 从自己打出的第几张牌开始立直
 	bool isLiZhi; // 是否立直
 	bool isYiFa;
-	bool isLiuJuManGuan; // 是否能够满贯流局
 	bool isZhenTing[3]; // 根据是否打出过听牌判断是否振听
 						// [0]舍张振听——自己打过了要听的牌，大多数是因为没役，无法荣和除非换听牌
 						// [1]同巡振听——三家打了要听的牌，但是没立直也没役，只要自家摸切就可以解除
@@ -192,13 +191,13 @@ struct Player {
 							 // vector<vector<Tiles> > partitionTiles; // 所有的手牌（注意是手牌“未打出的手里的牌”的拆牌方式）
 
 							 // person put out c
-	int checkHuPrerequisite(const string c, int cPlayer);
+	int check_hu_prerequisite(const string c, int cPlayer);
 
 	void initalize(int p, const vector<string> & hc);
 
-	vector<string> retOwnTiles(bool reCalculate = false);
+	vector<string> get_own_tiles(bool reCalculate = false);
 
-	bool deleteTile(const string c);
+	bool delete_tile(const string c);
 };
 
 using YiZhongCheckFunction = std::function< FanFu(const vector<Tiles>& partition, const Player& p, string t, int pid) >;
@@ -211,11 +210,11 @@ struct YiZhongChecker
 YiZhongChecker specialYiZhong[] = {
 	{
 		"国士无双十三面", GUO_SHI_WU_SHUANG_SHI_SAN_MIAN, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
-	if (!(isYaoJiu(t)) || p.mingTiles.size() != 0 || p.anGangTiles.size() != 0)
+	if (!(is_yao_jiu(t)) || p.mingTiles.size() != 0 || p.anGangTiles.size() != 0)
 		return FanFu({}, 0, 0, 0);
 	string test = "";
 	for (auto & x : p.handTiles) {
-		if (!(isYaoJiu(x)))
+		if (!(is_yao_jiu(x)))
 			return FanFu({}, 0, 0, 0);
 		test += x;
 	}
@@ -226,11 +225,11 @@ YiZhongChecker specialYiZhong[] = {
 	},
 	{
 		"国士无双", GUO_SHI_WU_SHUANG, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
-	if (!(isYaoJiu(t)) || p.mingTiles.size() != 0 || p.anGangTiles.size() != 0)
+	if (!(is_yao_jiu(t)) || p.mingTiles.size() != 0 || p.anGangTiles.size() != 0)
 		return FanFu({}, 0, 0, 0);
 	string test = "";
 	for (auto & x : p.handTiles) {
-		if (!(isYaoJiu(x)))
+		if (!(is_yao_jiu(x)))
 			return FanFu({}, 0, 0, 0);
 		test += x;
 	}
@@ -255,19 +254,18 @@ YiZhongChecker specialYiZhong[] = {
 		"七对子", QI_DUI_ZI, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
 	if (p.anGangTiles.size() || p.mingTiles.size())
 		return FanFu({}, 0, 0, 0);
-	map<string, int> countNum;
-	countNum.insert(make_pair(t, 1));
-	for (auto & x : p.handTiles) {
-		auto it = countNum.find(x);
-		if (it != countNum.end())
-			it->second++;
-		else
-			countNum.insert(make_pair(x, 1));
+	auto hc = p.handTiles;
+	hc.push_back(t);
+	auto nums = string_to_34_tiles(hc, false);
+	int cnt = 0;
+	for (int i = 0; i < 4; i++) {
+		for (int j = 1; j < 10; j++) {
+			if (nums[i][j] == 2)
+				cnt++;
+		}
 	}
-	for (auto & x : countNum) {
-		if (x.second != 2)
-			return FanFu({}, 0, 0, 0);
-	}
+	if (cnt != 7)
+		return FanFu({}, 0, 0, 0);
 	return FanFu({ QI_DUI_ZI }, 2, 25, 0);
 }
 	},
@@ -337,10 +335,14 @@ YiZhongChecker yakumanYiZhong[] = {
 		"四暗刻", SI_AN_KE, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
 	if (p.mingTiles.size() != 0 || p.pos != pid)
 		return FanFu({}, 0, 0, 0);
-	// 要和四暗刻单骑区分开来；这种情况下只能自摸，否则以三暗刻算
+	// 要和四暗刻单骑区分开来，手里一定有两张t；这种情况下只能自摸，否则以三暗刻算
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
-	vector<vector<int> > nums = string_to_34_tiles(hc, true);
+	vector<vector<int> > nums = string_to_34_tiles(hc, false);
+	int type_of_tile = get_tile_type(t[0]), num_of_tile = get_tile_num(t[1]);
+	if (nums[type_of_tile][num_of_tile] != 3)
+		return FanFu({}, 0, 0, 0);
+
 	int countKeZi = 0, countPair = 0;
 	for (int type_of_tiles = 0; type_of_tiles < 4; type_of_tiles++)
 		for (int idx = 1; idx <= 9; idx++) {
@@ -362,7 +364,7 @@ YiZhongChecker yakumanYiZhong[] = {
 		return FanFu({}, 0, 0, 0);
 	vector<string> hc = p.ownTiles;
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
-	int type_of_tiles = getTypeOfTile(t[0]);
+	int type_of_tiles = get_tile_type(t[0]);
 	if (nums[type_of_tiles][10] != 13 || type_of_tiles == 3)
 		return FanFu({}, 0, 0, 0);
 	bool flag = true;
@@ -547,7 +549,7 @@ YiZhongChecker usualYiZhong[] = {
 	char c = t[0];
 	if (c == 'Z')
 		return FanFu({}, 0, 0, 0);
-	int typeT = getTypeOfTile(c);
+	int typeT = get_tile_type(c);
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
@@ -568,7 +570,7 @@ YiZhongChecker usualYiZhong[] = {
 			return FanFu({}, 0, 0, 0);
 		if (x.type == "JIANG")
 			continue;
-		type_of_tiles = getTypeOfTile(x.part[0][0]);
+		type_of_tiles = get_tile_type(x.part[0][0]);
 		vecTiles[type_of_tiles].push_back(x.part[0]);
 	}
 
@@ -604,13 +606,13 @@ YiZhongChecker usualYiZhong[] = {
 	if (nums[3][10])
 		return FanFu({}, 0, 0, 0);
 
-	int type_of_tile = getTypeOfTile(t[0]);
+	int type_of_tile = get_tile_type(t[0]);
 
 	for (auto & tiles : p.anGangTiles)
-		if (!isYaoJiu(tiles[0]))
+		if (!is_yao_jiu(tiles[0]))
 			return FanFu({}, 0, 0, 0);
 	for (auto & tiles : p.mingTiles)
-		if (!isYaoJiu(tiles[0]) && !isYaoJiu(tiles[2]))
+		if (!is_yao_jiu(tiles[0]) && !is_yao_jiu(tiles[2]))
 			return FanFu({}, 0, 0, 0);
 
 	int fu = 0;
@@ -618,18 +620,18 @@ YiZhongChecker usualYiZhong[] = {
 	for (auto & x : partition) {
 		cntShunZi += x.type == "SHUNZI";
 		if (x.type == "JIANG" || x.type == "KEZI") {
-			if (!isYaoJiu(x.part[0]))
+			if (!is_yao_jiu(x.part[0]))
 				return FanFu({}, 0, 0, 0);
 			if (x.type == "KEZI") {
 				if (pid == p.pos || x.part[0] != t)
 					fu += 8;
-				else if (nums[type_of_tile][t[1] - '0'] == 4)
+				else if (nums[type_of_tile][get_tile_num(t[1])] == 4)
 					fu += 8;
 				else // 刻子形成如果是来自他人，则算为明刻
 					fu += 4;
 			}
 		}
-		else if (!isYaoJiu(x.part[0]) && !isYaoJiu(x.part[2]))
+		else if (!is_yao_jiu(x.part[0]) && !is_yao_jiu(x.part[2]))
 			return FanFu({}, 0, 0, 0);
 	}
 	if (cntShunZi == 0)
@@ -676,11 +678,11 @@ YiZhongChecker usualYiZhong[] = {
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (t[0] != 'Z' && nums[type_of_tiles][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (t[0] != 'Z' && nums[type_of_tiles][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ HUN_YI_SE }, baseFan, fu, 0);
@@ -719,29 +721,29 @@ YiZhongChecker usualYiZhong[] = {
 		return FanFu({}, 0, 0, 0);
 
 	for (auto & tiles : p.anGangTiles)
-		if (!isYaoJiu(tiles[0]))
+		if (!is_yao_jiu(tiles[0]))
 			return FanFu({}, 0, 0, 0);
 	for (auto & tiles : p.mingTiles)
-		if (!isYaoJiu(tiles[0]) && !isYaoJiu(tiles[2]))
+		if (!is_yao_jiu(tiles[0]) && !is_yao_jiu(tiles[2]))
 			return FanFu({}, 0, 0, 0);
 
-	int type_of_tile = getTypeOfTile(t[0]);
+	int type_of_tile = get_tile_type(t[0]);
 
 	int fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "JIANG" || x.type == "KEZI") {
-			if (!isYaoJiu(x.part[0]))
+			if (!is_yao_jiu(x.part[0]))
 				return FanFu({}, 0, 0, 0);
 			if (x.type == "KEZI") {
 				if (pid == p.pos || x.part[0] != t)
 					fu += 8;
-				else if (type_of_tile != 3 && nums[type_of_tile][t[1] - '0'] == 4)
+				else if (type_of_tile != 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
 					fu += 8;
 				else // 刻子形成如果是来自他人，则算为明刻
 					fu += 4;
 			}
 		}
-		else if (!isYaoJiu(x.part[0]) && !isYaoJiu(x.part[2]))
+		else if (!is_yao_jiu(x.part[0]) && !is_yao_jiu(x.part[2]))
 			return FanFu({}, 0, 0, 0);
 	}
 	return FanFu({ HUN_QUAN_DAI_YAO_JIU }, baseFan, fu, 0);
@@ -757,28 +759,28 @@ YiZhongChecker usualYiZhong[] = {
 	vector<vector<int>> nMin(3, vector<int>());
 	int type_of_tile, fu = 0;
 	for (auto & x : p.mingTiles) {
-		type_of_tile = getTypeOfTile(x[0][0]);
+		type_of_tile = get_tile_type(x[0][0]);
 		if (type_of_tile == 3)
 			continue;
 		if (x[0][1] != x[1][1])
-			nMin[type_of_tile].push_back(x[0][1] - '0');
+			nMin[type_of_tile].push_back(get_tile_num(x[0][1]));
 	}
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
 	for (auto & x : partition) {
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (type_of_tile == 3)
 			continue;
 		if (x.type == "SHUNZI")
-			nMin[type_of_tile].push_back(x.part[0][1] - '0');
+			nMin[type_of_tile].push_back(get_tile_num(x.part[0][1]));
 		if (x.type == "KEZI") {
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	int tmp;
@@ -818,9 +820,9 @@ YiZhongChecker usualYiZhong[] = {
 			return FanFu({}, 0, 0, 0);
 		if (x.type == "KEZI") {
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ DUI_DUI_HU }, 2, fu, 0);
@@ -832,7 +834,7 @@ YiZhongChecker usualYiZhong[] = {
 	// 另外还有一个面子和对子
 	if (p.mingTiles.size() > 1 || partition.empty())
 		return FanFu({}, 0, 0, 0);
-	int countAnKe = p.anGangTiles.size(), fu = 0, type_of_tile = getTypeOfTile(t[0]);
+	int countAnKe = p.anGangTiles.size(), fu = 0, type_of_tile = get_tile_type(t[0]);
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
@@ -841,14 +843,14 @@ YiZhongChecker usualYiZhong[] = {
 			continue;
 		if (pid == p.pos || x.part[0] != t) {
 			countAnKe++;
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		}
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4) {
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4) {
 			countAnKe++;
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		}
 		else // 刻子形成如果是来自他人，则算为明刻
-			fu += 2 + 2 * isYaoJiu(x.part[0]);
+			fu += 2 + 2 * is_yao_jiu(x.part[0]);
 	}
 	if (countAnKe == 3)
 		return FanFu({ SAN_AN_KE }, 2, fu, 0);
@@ -860,7 +862,7 @@ YiZhongChecker usualYiZhong[] = {
 	if (partition.empty())
 		return FanFu({}, 0, 0, 0);
 	// 三杠子要在鸣牌和暗杠里找。
-	int countGangZi = p.anGangTiles.size(), fu = 0, type_of_tile = getTypeOfTile(t[0]);
+	int countGangZi = p.anGangTiles.size(), fu = 0, type_of_tile = get_tile_type(t[0]);
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
@@ -872,11 +874,11 @@ YiZhongChecker usualYiZhong[] = {
 		if (x.type == "SHUNZI" || x.type == "JIANG")
 			continue;
 		if (pid == p.pos || x.part[0] != t)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		else // 刻子形成如果是来自他人，则算为明刻
-			fu += 2 + 2 * isYaoJiu(x.part[0]);
+			fu += 2 + 2 * is_yao_jiu(x.part[0]);
 	}
 	if (countGangZi == 3)
 		return FanFu({ SAN_GANG_ZI }, 2, fu, 0);
@@ -894,29 +896,29 @@ YiZhongChecker usualYiZhong[] = {
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
 	vector<vector<int> > cntNum(3, vector<int>());
 	for (auto & x : p.anGangTiles) {
-		type_of_tile = getTypeOfTile(x[0][0]);
+		type_of_tile = get_tile_type(x[0][0]);
 		if (type_of_tile == 3)
 			continue;
-		cntNum[type_of_tile].push_back(x[0][1] - '0');
+		cntNum[type_of_tile].push_back(get_tile_num(x[0][1]));
 	}
 	for (auto & x : p.mingTiles) {
-		type_of_tile = getTypeOfTile(x[0][0]);
+		type_of_tile = get_tile_type(x[0][0]);
 		if (type_of_tile == 3 || x[0][1] != x[1][1])
 			continue;
-		cntNum[type_of_tile].push_back(x[0][1] - '0');
+		cntNum[type_of_tile].push_back(get_tile_num(x[0][1]));
 	}
 	for (auto & x : partition) {
 		if (x.type == "SHUNZI" || x.type == "JIANG")
 			continue;
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (type_of_tile < 3)
-			cntNum[type_of_tile].push_back(x.part[0][1] - '0');
+			cntNum[type_of_tile].push_back(get_tile_num(x.part[0][1]));
 		if (pid == p.pos || x.part[0] != t)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		else // 刻子形成如果是来自他人，则算为明刻
-			fu += 2 + 2 * isYaoJiu(x.part[0]);
+			fu += 2 + 2 * is_yao_jiu(x.part[0]);
 	}
 	int tmp = 0;
 	for (int i = 0; i < 3; i++) {
@@ -958,10 +960,10 @@ YiZhongChecker usualYiZhong[] = {
 			return FanFu({}, 0, 0, 0);
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
 				fu += 8;
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
 				fu += 8;
 			else // 刻子形成如果是来自他人，则算为明刻
 				fu += 4;
@@ -988,13 +990,13 @@ YiZhongChecker usualYiZhong[] = {
 	for (auto & x : partition) {
 		if (x.type == "SHUNZI" || x.type == "JIANG")
 			continue;
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (pid == p.pos || x.part[0] != t)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		else // 刻子形成如果是来自他人，则算为明刻
-			fu += 2 + 2 * isYaoJiu(x.part[0]);
+			fu += 2 + 2 * is_yao_jiu(x.part[0]);
 	}
 
 	if (countKeZi == 2 && countPair == 1)
@@ -1021,26 +1023,26 @@ YiZhongChecker usualYiZhong[] = {
 		return FanFu({}, 0, 0, 0);
 
 	for (auto & x : p.mingTiles) {
-		type_of_tile = getTypeOfTile(x[0][0]);
+		type_of_tile = get_tile_type(x[0][0]);
 		if (type_of_tile == 3 || x[0][1] == x[1][1] || obj != type_of_tile)
 			continue;
-		cntNum.push_back(x[0][1] - '0');
+		cntNum.push_back(get_tile_num(x[0][1]));
 	}
 	for (auto & x : partition) {
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (x.type == "JIANG")
 			continue;
 		else if (x.type == "SHUNZI") {
 			if (obj == type_of_tile)
-				cntNum.push_back(x.part[0][1] - '0');
+				cntNum.push_back(get_tile_num(x.part[0][1]));
 		}
 		else {
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	for (int i = 1; i <= 7; i += 3)
@@ -1059,15 +1061,15 @@ YiZhongChecker usualYiZhong[] = {
 		hc.push_back(t);
 		vector<vector<int> > nums = string_to_34_tiles(hc, true);
 		for (auto & x : partition) {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (x.type != "KEZI")
 				continue;
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 		return FanFu({ LI_ZHI }, 1, fu, 0);
 	}
@@ -1093,15 +1095,15 @@ YiZhongChecker usualYiZhong[] = {
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
 	for (auto & x : partition) {
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (x.type != "KEZI")
 			continue;
 		if (pid == p.pos || x.part[0] != t)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 		else // 刻子形成如果是来自他人，则算为明刻
-			fu += 2 + 2 * isYaoJiu(x.part[0]);
+			fu += 2 + 2 * is_yao_jiu(x.part[0]);
 	}
 	return FanFu({ MEN_QIAN_QING_ZI_MO }, 1, fu, 0);
 }
@@ -1114,9 +1116,14 @@ YiZhongChecker usualYiZhong[] = {
 	// 在算符的时候，如果是门清自摸，则自摸的2符必须不计
 	if (p.anGangTiles.size() != 0 || partition.empty() || t[0] == 'Z') // 平和不能有暗杠 因为需要计算符数 t不能是字牌
 		return FanFu({}, 0, 0, 0);
+	for (auto & x : partition) {
+		if (x.type == "KEZI")
+			return FanFu({}, 0, 0, 0);
+	}
+
 	// 没有确定门前清是为了计算符数。wiki上：平和在门前清时算一番；在副露下算两符
 	for (auto & x : p.mingTiles) {
-		if (isTileSame(x[0], x[1]))
+		if (is_same_tile(x[0], x[1]))
 			return FanFu({}, 0, 0, 0);
 	}
 
@@ -1127,9 +1134,9 @@ YiZhongChecker usualYiZhong[] = {
 	if (nums[3][10] >= 3 || nums[3][5] || nums[3][6] || nums[3][7] || nums[3][p.pos + 1] || nums[3][p.changFeng + 1])
 		return FanFu({}, 0, 0, 0);
 
-	int tmp = getTypeOfTile(t[0]);
+	int tmp = get_tile_type(t[0]);
 	// 不能是边张、单钓中张或者是单骑听雀头。
-	int res = checkTingType(hc, t, nums[tmp][10] % 3 == 2);
+	int res = get_ting_type(hc, t, 1);
 	if ((res & 1) != 1)
 		return FanFu({}, 0, 0, 0);
 	if (p.pos == pid)
@@ -1160,12 +1167,12 @@ YiZhongChecker usualYiZhong[] = {
 	}
 
 	for (auto & x : partition) {
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (x.type != "KEZI")
 			continue;
 		if (pid == p.pos || x.part[0] != t)
 			fu += 4;
-		else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
+		else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
 			fu += 4;
 		else // 刻子形成如果是来自他人，则算为明刻
 			fu += 2;
@@ -1185,16 +1192,16 @@ YiZhongChecker usualYiZhong[] = {
 
 	vector<vector<int> > cntNum(3, vector<int>());
 	for (auto & x : partition) {
-		type_of_tile = getTypeOfTile(x.part[0][0]);
+		type_of_tile = get_tile_type(x.part[0][0]);
 		if (x.type == "SHUNZI")
-			cntNum[type_of_tile].push_back(x.part[0][1] - '0');
+			cntNum[type_of_tile].push_back(get_tile_num(x.part[0][1]));
 		if (x.type == "KEZI") {
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	int cnt = 0;
@@ -1220,13 +1227,13 @@ YiZhongChecker usualYiZhong[] = {
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ YI_PAI_BAI }, 1, fu, 0);
@@ -1244,13 +1251,13 @@ YiZhongChecker usualYiZhong[] = {
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ YI_PAI_FA }, 1, fu, 0);
@@ -1268,13 +1275,13 @@ YiZhongChecker usualYiZhong[] = {
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ YI_PAI_ZHONG }, 1, fu, 0);
@@ -1289,7 +1296,7 @@ YiZhongChecker usualYiZhong[] = {
 	int fu = 0;
 	for (auto & x : partition)
 		if (x.type == "KEZI")
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 	return FanFu({ LING_SHANG_KAI_HUA }, 1, fu, 0);
 }
 	},
@@ -1306,68 +1313,43 @@ YiZhongChecker usualYiZhong[] = {
 	int fu = 0;
 	for (auto & x : partition)
 		if (x.type == "KEZI")
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
 	return FanFu({ QIANG_GANG }, 1, fu, 0);
 }
 	},
 	{
 		"海底捞月", HAI_DI_LAO_YUE, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
-	if (p.pos != pid)	// t是自己摸的最后一张牌
+	if (p.pos != pid || numRestTiles != 0)	// t是自己摸的最后一张牌
 		return FanFu({}, 0, 0, 0);
-	vector<string> hc = p.ownTiles;
-	hc.push_back(t);
-	vector<vector<int> > nums = string_to_34_tiles(hc, true);
-
-	if (p.mingTiles.size() == 0 && p.anGangTiles.size() == 0) { // 七对子
-		int cnt = 0;
-		for (int i = 0; i <= 3; i++)
-			for (int j = 1; j <= 9; j++)
-				cnt += (nums[i][j] == 2);
-		if (cnt == 7)
-			return FanFu({ HAI_DI_LAO_YUE }, 1, 0, 0);
-	}
 
 	int fu = 0;
 	for (auto & x : partition)
 		if (x.type == "KEZI")
-			fu += 4 + 4 * isYaoJiu(x.part[0]);
-	if (numRestTiles == 0)
-		return FanFu({ HAI_DI_LAO_YUE }, 1, fu, 0);
-	return FanFu({}, 0, 0, 0);
+			fu += 4 + 4 * is_yao_jiu(x.part[0]);
+	return FanFu({ HAI_DI_LAO_YUE }, 1, fu, 0);
 }
 	},
 	{
 		"河底摸鱼", HE_DI_MO_YU, [](const vector<Tiles>& partition, const Player& p, string t, int pid) -> FanFu {
-	if (p.pos == pid) // t是别人摸的最后一张牌
+	if (p.pos == pid || numRestTiles != 0) // t是别人摸的最后一张牌
 		return FanFu({}, 0, 0, 0);
 	vector<string> hc = p.ownTiles;
 	hc.push_back(t);
 	vector<vector<int> > nums = string_to_34_tiles(hc, true);
 
-	if (p.mingTiles.size() == 0 && p.anGangTiles.size() == 0) { // 七对子
-		int cnt = 0;
-		for (int i = 0; i <= 3; i++)
-			for (int j = 1; j <= 9; j++)
-				cnt += (nums[i][j] == 2);
-		if (cnt == 7)
-			return FanFu({ HAI_DI_LAO_YUE }, 1, 0, 0);
-	}
-
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
-	if (numRestTiles == 0)
-		return FanFu({ HE_DI_MO_YU }, 1, fu, 0);
-	return FanFu({}, 0, 0, 0);
+	return FanFu({ HE_DI_MO_YU }, 1, fu, 0);
 }
 	},
 	{
@@ -1382,13 +1364,13 @@ YiZhongChecker usualYiZhong[] = {
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ YI_PAI_CHANG_FENG }, 1, fu, 0);
@@ -1406,13 +1388,13 @@ YiZhongChecker usualYiZhong[] = {
 	int type_of_tile, fu = 0;
 	for (auto & x : partition) {
 		if (x.type == "KEZI") {
-			type_of_tile = getTypeOfTile(x.part[0][0]);
+			type_of_tile = get_tile_type(x.part[0][0]);
 			if (pid == p.pos || x.part[0] != t)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
-			else if (type_of_tile < 3 && nums[type_of_tile][t[1] - '0'] == 4)
-				fu += 4 + 4 * isYaoJiu(x.part[0]);
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
+			else if (type_of_tile < 3 && nums[type_of_tile][get_tile_num(t[1])] == 4)
+				fu += 4 + 4 * is_yao_jiu(x.part[0]);
 			else // 刻子形成如果是来自他人，则算为明刻
-				fu += 2 + 2 * isYaoJiu(x.part[0]);
+				fu += 2 + 2 * is_yao_jiu(x.part[0]);
 		}
 	}
 	return FanFu({ YI_PAI_MENG_FENG }, 1, fu, 0);
@@ -1420,15 +1402,16 @@ YiZhongChecker usualYiZhong[] = {
 	},
 };
 
-int getScore(int fan, int fu, bool isYakuman);
-FanFu getHighFanFu(vector<FanFu>& vecF);
-vector<FanFu> checkHu(int player, const string c, int offer, bool finish);
+int get_basepoint(int fan, int fu, bool isYakuman);
+int get_score(int fan, int fu, bool isYakuman);
+FanFu get_high_fan_fu(vector<FanFu>& vecF);
+vector<FanFu> check_HU(int player, const string c, int offer, bool finish);
 
 string ActionName[10] = { "CHI", "PENG", "GANG", "BUGANG", "ANGANG", "LIZHI", "RONG", "TSUMO" };
 
 string FanNames[50] = { "国士无双十三面","四暗刻单骑","纯正九莲宝灯","大四喜","国士无双","四暗刻","九莲宝灯","天和","地和","字一色","绿一色","清老头","大三元","四杠子","小四喜","清一色","二杯口","纯全带幺九","混一色","七对子","双立直","混全带幺九","三色同顺","对对和","三暗刻","三杠子","三色同刻","混老头","小三元","一气通贯","立直","一发","门前清自摸","平和","断幺九","一杯口","役牌白","役牌发","役牌中","岭上开花","抢杠","海底捞月","河底摸鱼","役牌场风","役牌门风","流局满贯","宝牌","红宝牌","里宝牌" };
 
-bool isTileSame(const string & a, const string & b) {
+bool is_same_tile(const string & a, const string & b) {
 	if (a.length() != 2 || b.length() != 2)
 		return false;
 	char val_a = a[1], val_b = b[1];
@@ -1446,33 +1429,16 @@ vector<vector<int> > string_to_34_tiles(const vector<string> & vec_str, bool fiv
 	int type_of_tiles, idx;
 	for (auto & x : vec_str) {
 		c = x[0];
-		type_of_tiles = getTypeOfTile(c);
-		idx = (!five_red && x[1] == '0') ? 5 : x[1] - '0';
+		type_of_tiles = get_tile_type(c);
+		idx = five_red ? x[1] - '0' : get_tile_num(x[1]);
 		res[type_of_tiles][idx]++;
 	}
 	for (int i = 0; i < 4; i++)
 		res[i][10] = accumulate(res[i].begin(), res[i].end(), 0);
 	return res;
 }
-int typeMianZi(const string s) {
-	int l = s.length();
-	if (l == 4) { // 4个
-		char n = s[0];
-		for (int i = 1; i < 4; i++)
-			if (s[i] != n)
-				return -1;
-		return GANG_ZI;
-	}
-	else if (l == 3) { // 3个
-		char n = s[0];
-		if (s[1] == n && s[2] == n)
-			return KE_ZI;
-		if (s[1] == n + 1 && s[2] == n + 2)
-			return SHUN_ZI;
-	}
-	return -1;
-}
-bool isMultiMianZi(const string s, int hasPair) {
+
+bool is_multi_mian_zi(const string s, int hasPair) {
 	// s都是“数字,hasPair为允许s中有对子的个数
 	// 拆牌返回vector
 	int l = s.length();
@@ -1507,16 +1473,7 @@ bool isMultiMianZi(const string s, int hasPair) {
 }
 
 Tiles::Tiles() {}
-bool Tiles::isEqual(const Tiles & b) {
-	if (type == b.type && part.size() == b.part.size()) {
-		int N = part.size();
-		for (int i = 0; i < N; i++)
-			if (part[i] != b.part[i])
-				return false;
-		return true;
-	}
-	return false;
-}
+
 Tiles::Tiles(string t, vector<string> p, int f) {
 	type = t;
 	part = p;
@@ -1603,7 +1560,7 @@ void back(vector<vector<Tiles> > & res, vector<Tiles> & vecTiles, vector<int> & 
 	}
 }
 // 返回一种花色的牌的拆牌结果
-vector<vector<Tiles>> getCombinationOfType(vector<int> & num, char cType) {
+vector<vector<Tiles>> get_combination_of_type(vector<int> & num, char cType) {
 	vector<vector<Tiles>> res;
 	vector<Tiles> vecTiles;
 	res.clear(); vecTiles.clear();
@@ -1619,12 +1576,13 @@ vector<vector<Tiles>> getCombinationOfType(vector<int> & num, char cType) {
 	back(res, vecTiles, a, N, hasPair, cType);
 	return res;
 }
-vector<vector<Tiles>> getAllCombinations(vector<vector<int>> & nums) {
+vector<vector<Tiles>> get_all_combinations(vector<vector<int>> & nums) {
+	int sumAll = nums[0][10] + nums[1][10] + nums[2][10] + nums[3][10];
 	string strType = "BTWZ";
 	vector<vector<vector<Tiles>>> allTypedTiles;
 	vector<vector<Tiles>> blank(1, vector<Tiles>());
 	for (int i = 0; i <= 3; i++) {
-		auto tmp = getCombinationOfType(nums[i], strType[i]);
+		auto tmp = get_combination_of_type(nums[i], strType[i]);
 		if (tmp.size() == 0)
 			continue;
 		allTypedTiles.push_back(tmp);
@@ -1651,10 +1609,13 @@ vector<vector<Tiles>> getAllCombinations(vector<vector<int>> & nums) {
 				}
 	bool flag = false;
 	for (auto & partition : res) {
-		int cnt = 0;
-		for (auto & x : partition)
-			cnt += x.type == "JIANG";
-		if (cnt == 1)
+		int pairCnt = 0, cnt = 0;
+		for (auto & x : partition) {
+			pairCnt += x.type == "JIANG";
+			cnt += x.type == "JIANG" ? 2 : 3;
+		}
+			
+		if (pairCnt == 1 && cnt == sumAll)
 			flag = true;
 	}
 	if (!flag)
@@ -1663,7 +1624,7 @@ vector<vector<Tiles>> getAllCombinations(vector<vector<int>> & nums) {
 	return res;
 }
 // 听牌类型检测 两面 0b1 、双碰 0b10 、嵌张 0b1000 、边张 0b10000、单骑 0b100
-int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含了p,p代表的是新加入的牌
+int get_ting_type(vector<string> vec_s, string c, int hasPair) { // vec_s包含了p,p代表的是新加入的牌
 	if (vec_s.size() == 0)
 		return 0;
 
@@ -1674,7 +1635,7 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 	for (auto & x : vec_s) {
 		if (x[0] == p[0]) {
 			s.push_back(x[1] == '0' ? '5' : x[1]);
-			nums[(x[1] - '0') == 0 ? 5 : x[1] - '0']++;
+			nums[get_tile_num(x[1])]++;
 		}
 	}
 	sort(s.begin(), s.end());
@@ -1699,7 +1660,7 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 				string t = tmp;
 				auto it2 = t.find_first_of(c);
 				t.replace(it2, 2, "");
-				if (isMultiMianZi(tmp, hasPair - 1))
+				if (is_multi_mian_zi(tmp, hasPair - 1))
 					flag = true;
 			}
 		}
@@ -1711,7 +1672,7 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 		string tmp = s;
 		auto it = tmp.find_first_of(p);
 		tmp.replace(it, 2, "");
-		if (isMultiMianZi(tmp, hasPair - 1))
+		if (is_multi_mian_zi(tmp, hasPair - 1))
 			res |= 0b100;
 	}
 	if (p[0] == 'Z')
@@ -1724,21 +1685,21 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 			auto it = tmp.find_first_of(c);
 			tmp.replace(it, 1, "");
 		}
-		if (isMultiMianZi(tmp, hasPair))
+		if (is_multi_mian_zi(tmp, hasPair))
 			res |= 0b1000;
 	}
 	// check 边张
 	if (p[1] == '3' || p[1] == '7') {
 		int i = p[1] == '3' ? -1 : 1;
 		if (nums[p[1] - '0' + i] > 0 && nums[p[1] - '0' + i * 2] > 0) {
-			char c = p[1];
+			char c = p[1], c2;
 			string tmp = s;
 			for (int k = 0; k < 3; k++) {
-				c = c + i * k;
-				auto it = tmp.find_first_of(c);
+				c2 = c + i * k;
+				auto it = tmp.find_first_of(c2);
 				tmp.replace(it, 1, "");
 			}
-			if (isMultiMianZi(tmp, hasPair))
+			if (is_multi_mian_zi(tmp, hasPair))
 				res |= 0b10000;
 		}
 	}
@@ -1750,7 +1711,7 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 			auto it = tmp.find_first_of(p[1] + k);
 			tmp.replace(it, 1, "");
 		}
-		if (isMultiMianZi(tmp, hasPair))
+		if (is_multi_mian_zi(tmp, hasPair))
 			flag = true;
 	}
 	if (p[1] >= '4' && p[1] <= '9' && nums[p[1] - '0' - 1] > 0 && nums[p[1] - '0' - 2] > 0) {
@@ -1759,14 +1720,14 @@ int checkTingType(vector<string> vec_s, string c, int hasPair) { // vec_s包含�
 			auto it = tmp.find_first_of(p[1] - k);
 			tmp.replace(it, 1, "");
 		}
-		if (isMultiMianZi(tmp, hasPair))
+		if (is_multi_mian_zi(tmp, hasPair))
 			flag = true;
 	}
 	if (flag)
 		res |= 0b1;
 	return res;
 }
-bool isYaoJiu(string t) {
+bool is_yao_jiu(string t) {
 	int l = t.length();
 	if (t[0] == 'Z')
 		return true;
@@ -1775,10 +1736,34 @@ bool isYaoJiu(string t) {
 			return true;
 	return false;
 }
-int getTypeOfTile(char c) {
-	return ((c > 'B') + (c > 'T') + (c > 'W'));
+int get_tile_type(char c) {
+	string types = "BTWZ";
+	auto idx = types.find(c);
+	if (idx == string::npos)
+		return -1;
+	else
+		return ((int)idx);
 }
-int getScore(int fan, int fu, bool isYakuman) {
+int get_tile_num(char c) {
+	return c == '0' ? 5 : c - '0';
+}
+
+int get_score(int fan, int fu, bool isYakuman) {
+	int bp = 0;
+	if (isYakuman) bp = fan / 13 * 8000;
+	else if (fan >= 13) bp = 8000;
+	else if (fan >= 11) bp = 6000;
+	else if (fan >= 8) bp = 4000;
+	else if (fan >= 6) bp = 3000;
+	else if (fan >= 5) bp = 2000;
+	else {
+		bp = fu * (1 << (fan + 2));
+		if (bp > 2000) bp = 2000;
+	}
+	return bp;
+}
+int get_basepoint(int fan, int fu, bool isYakuman) {
+
 	if (isYakuman) {
 		if (fan % 13 != 0) return 0;
 		return fan / 13 * 32000;
@@ -1832,7 +1817,7 @@ int getScore(int fan, int fu, bool isYakuman) {
 		return 0;
 	}
 }
-FanFu getHighFanFu(vector<FanFu> & vecF) { // 这里写得其实不太好，先这样简单处理了
+FanFu get_high_fan_fu(vector<FanFu> & vecF) { // 这里写得其实不太好，先这样简单处理了
 	int fan = 0, fu = 0, yakuman = 0;
 	if (vecF.size() == 0)
 		return FanFu({}, 0, 0, 0);
@@ -1866,7 +1851,7 @@ FanFu getHighFanFu(vector<FanFu> & vecF) { // 这里写得其实不太好，先�
 	return FanFu(namesYaku, fan, fu, 0);
 }
 
-vector<string> Player::retOwnTiles(bool reCalculate) {
+vector<string> Player::get_own_tiles(bool reCalculate) {
 	// reCalculate=true时计算ownTiles并返回
 	if (reCalculate) {
 		ownTiles.clear();
@@ -1889,7 +1874,7 @@ vector<string> Player::retOwnTiles(bool reCalculate) {
 	sort(ownTiles.begin(), ownTiles.end());
 	return ownTiles;
 }
-bool Player::deleteTile(const string c)
+bool Player::delete_tile(const string c)
 {
 	auto it = find(handTiles.begin(), handTiles.end(), c);
 	if (it == handTiles.end())
@@ -1901,12 +1886,11 @@ void Player::initalize(int p, const vector<string> & hc) {
 	pos = p;
 	isLiZhi = false;
 	numLiZhi = 25;
-	isLiuJuManGuan = true;
 	memset(isZhenTing, 0, sizeof(isZhenTing));
 	handTiles = hc;
 }
 // person put out c
-int Player::checkHuPrerequisite(const string c, int offer) {
+int Player::check_hu_prerequisite(const string c, int offer) {
 	// 分别是B饼 T条 W万 Z字（F风 J箭）
 	sort(this->handTiles.begin(), this->handTiles.end());
 	vector<string> hc;
@@ -1916,7 +1900,7 @@ int Player::checkHuPrerequisite(const string c, int offer) {
 	nums = string_to_34_tiles(hc, false);
 
 	// TODO: 这句话在写吃碰杠逻辑的时候需要注意减掉，比较影响性能。在吃碰杠的时候需要注意更改ownTiles的逻辑
-	this->retOwnTiles(true);
+	this->get_own_tiles(true);
 
 	vector<Tiles> tmp;
 	if (anGangTiles.size() == 0 && mingTiles.size() == 0) {
@@ -1988,19 +1972,11 @@ struct Game
 {
 	Player players[4];
 	int changFeng;
-	bool isSiFengLianDa; // 无人鸣牌的状态下4人都在第一巡打出同一种风牌
-	bool isSiGangSanLe; // 2人以上合计开杠4次
-	bool isJiuZhongJiuPai; // 第一巡轮到自己之前无人鸣牌状态下拥有9种及以上的幺九牌
-	bool isSiJiaLiZhi; // 4人都宣告立直成功
 	string baoPaiZhiShiTiles[2][5]; // [0][0~5]:表示牌5张,[1][0~5]:里表示牌
 	int numOfGang; // 表示开杠的次数，不能超过4次
 	vector<string> mountainTiles; // 牌山 一开始有74张，包括4张岭上牌，岭上牌是从0~3
 
 	Game() {
-		isSiFengLianDa = false;
-		isSiGangSanLe = false;
-		isJiuZhongJiuPai = false;
-		isSiJiaLiZhi = false;
 		numOfGang = 0;
 	}
 
@@ -2033,7 +2009,9 @@ struct Game
 			mountainTiles.clear();
 			mountainTiles = hc;
 		}
-
+		else {
+			init_mountain_tiles(outputValue["initdata"]["srand"].asUInt());
+		}
 		quan = 0;
 		string tmp;
 
@@ -2082,16 +2060,13 @@ struct Game
 				if (type_of_tiles == 3 && idx >= 8)
 					break;
 				tmp[1] = idx + '0';
-				if (players[pid].checkHuPrerequisite(tmp, pid)) {
+				if (players[pid].check_hu_prerequisite(tmp, pid)) {
 					res.push_back(tmp);
 				}
 			}
 		}
 		return res;
 	}
-
-
-
 
 };
 
@@ -2107,10 +2082,9 @@ struct ExtraInfo {
 	}
 	// CHI = 0, PENG = 1, GANG = 2, BUGANG = 3, ANGANG = 4, LIZHI = 5, RONG = 6, TSUMO = 7
 	void check(Game & g, string c, int offer, bool isDraw) { // 这个时候要确认一下是打出的牌(!isDraw)还是摸到的牌(isDraw)
-		// c不包含在任何一个player的手牌里
-		int type_of_tile = getTypeOfTile(c[0]);
-		if (type_of_tile < 3 && c[0] == '0') c[1] = '5';
-		int num_of_tile = c[1] - '0';
+															 // c不包含在任何一个player的手牌里
+		int type_of_tile = get_tile_type(c[0]);
+		int num_of_tile = get_tile_num(c[1]);
 
 		vector<vector<vector<int>>> numsHandTiles;
 		for (int i = 0; i < 4; i++) {
@@ -2119,7 +2093,7 @@ struct ExtraInfo {
 			vector<vector<int> > nums = string_to_34_tiles(hc, false);
 			numsHandTiles.push_back(nums);
 		}
-		
+
 		// 当只剩最后一张牌的时候，只能荣和、自摸 RONG = 6, TSUMO = 7
 		// 当只剩不到四张的时候，不能立直 LIZHI = 5,
 		if (!isDraw) { // 判断荣和
@@ -2128,28 +2102,27 @@ struct ExtraInfo {
 				auto & p = g.players[i];
 				if (p.isZhenTing[0] || p.isZhenTing[1] || p.isZhenTing[2]) continue;
 
-				if (p.checkHuPrerequisite(c, offer)) {
-					auto vecRes = checkHu(i, c, offer, false);
+				if (p.check_hu_prerequisite(c, offer)) {
+					auto vecRes = check_HU(i, c, offer, false);
 					if (!vecRes.empty()) actionList[i][RONG] = true;
 				}
 			}
 		}
 		else { // 判断自摸、立直
 			auto & p = g.players[offer];
-			if (p.checkHuPrerequisite(c, offer)) {
-				auto vecRes = checkHu(offer, c, offer, false);
+			if (p.check_hu_prerequisite(c, offer)) {
+				auto vecRes = check_HU(offer, c, offer, false);
 				if (!vecRes.empty()) actionList[offer][TSUMO] = true;
 			}
-			
+
 			if (p.mingTiles.size() == 0 && !p.isLiZhi && (g.mountainTiles.size() >= 8)) { // 立直要求门清
-				// p.handTiles.push_back(c); // To check!!
 				vector<string> vecTiles = p.handTiles;
 				vecTiles.push_back(c);
 				p.handTiles.push_back(c);
 				for (auto & tile : vecTiles) {
 					auto it = p.handTiles.begin();
 					for (; it != p.handTiles.end(); it++)
-						if (isTileSame(*it, tile)) {
+						if ((*it) == tile) {
 							it = p.handTiles.erase(it);
 							break;
 						}
@@ -2158,7 +2131,7 @@ struct ExtraInfo {
 					p.handTiles.push_back(tile);
 				}
 				if (vecstrLiZhiTiles[offer].size()) actionList[offer][LIZHI] = true;
-				p.deleteTile(c);
+				p.delete_tile(c);
 			}
 		}
 
@@ -2189,21 +2162,22 @@ struct ExtraInfo {
 				for (int i = 0; i < 4; i++) {
 					if (i == offer) continue;
 					if (!g.players[i].isLiZhi && (numsHandTiles[i][type_of_tile][num_of_tile] >= 2))
-						actionList[rightPlayer][PENG] = true;
-					if (!g.players[i].isLiZhi && (numsHandTiles[i][type_of_tile][num_of_tile] == 3))
-						actionList[rightPlayer][GANG] = true;
+						actionList[i][PENG] = true;
+					if (!g.players[i].isLiZhi && (numsHandTiles[i][type_of_tile][num_of_tile] == 3)
+						&& g.numOfGang < 4)
+						actionList[i][GANG] = true;
 				}
 			}
 		}
-		else {
+		else if (g.numOfGang < 4) {
 			// BUGANG = 3, ANGANG = 4, 都是自己的牌
 			// g.players[offer].handTiles.push_back(c);
 			numsHandTiles[offer][type_of_tile][num_of_tile]++;
 			auto & p = g.players[offer];
 			for (auto & tiles : p.mingTiles) {
-				if (isTileSame(tiles[0], tiles[1])) {
-					int tmp_type_of_tile = getTypeOfTile(tiles[0][0]);
-					int tmp_num_of_tile = tiles[0][1] - '0';
+				if (is_same_tile(tiles[0], tiles[1])) {
+					int tmp_type_of_tile = get_tile_type(tiles[0][0]);
+					int tmp_num_of_tile = get_tile_num(tiles[0][1]);
 					if (numsHandTiles[offer][tmp_type_of_tile][tmp_num_of_tile] == 1) {
 						actionList[offer][BUGANG] = true;
 						break;
@@ -2221,7 +2195,7 @@ struct ExtraInfo {
 
 					vector<string> tiles;
 					for (; it != p.handTiles.end();) {
-						if (isTileSame(*it, c)) {
+						if (is_same_tile(*it, c)) {
 							tiles.push_back(*it);
 							it = p.handTiles.erase(it);
 							n++;
@@ -2235,7 +2209,7 @@ struct ExtraInfo {
 					if (ting_aft.size() != ting_bef.size()) flag = true;
 					else {
 						for (int i = 0; i < ting_bef.size(); i++) {
-							if (!isTileSame(ting_bef[i], ting_aft[i]))
+							if (!is_same_tile(ting_bef[i], ting_aft[i]))
 								flag = true;
 						}
 					}
@@ -2244,14 +2218,14 @@ struct ExtraInfo {
 						oldplayer.handTiles.push_back(t);
 						vector<string> hc = oldplayer.handTiles;
 						vector<vector<int> > nums = string_to_34_tiles(hc, false);
-						vector<vector<Tiles>> allCombBef = getAllCombinations(nums);
+						vector<vector<Tiles>> allCombBef = get_all_combinations(nums);
 						for (auto tiles : allCombBef) { // 如果有任何一种胡牌方式里
 							if (flag) break;
 							for (auto & tile : tiles) { // 待暗杠的牌组成了面子，就不能暗杠
 								if (flag) break;
 								if (tile.type == "SHUNZI") {
 									for (auto & x : tile.part) {
-										if (isTileSame(x, c)) {
+										if (is_same_tile(x, c)) {
 											flag = true;
 											break;
 										}
@@ -2259,7 +2233,7 @@ struct ExtraInfo {
 								}
 							}
 						}
-						oldplayer.deleteTile(t);
+						oldplayer.delete_tile(t);
 					}
 
 					p.handTiles.insert(p.handTiles.end(), tiles.begin(), tiles.end());
@@ -2281,7 +2255,7 @@ struct ExtraInfo {
 	}
 };
 
-void showDoraIndicators(Json::Value & v) {
+void show_dora_indicators(Json::Value & v) {
 	string doraIndicators = "";
 	for (int i = 0; i <= g.numOfGang; i++) {
 		doraIndicators += g.baoPaiZhiShiTiles[0][i];
@@ -2293,31 +2267,51 @@ void showDoraIndicators(Json::Value & v) {
 	outputValue["display"]["doraIndicators"] = doraIndicators;
 }
 
+void show_hidden_dora_indicators(Json::Value & v) {
+	string doraIndicators = "";
+	for (int i = 0; i <= g.numOfGang; i++) {
+		doraIndicators += g.baoPaiZhiShiTiles[1][i];
+		if (i == g.numOfGang)
+			break;
+		doraIndicators += " ";
+	}
+	v["hiddenDoraIndicators"] = doraIndicators;
+	outputValue["display"]["hiddenDoraIndicators"] = doraIndicators;
+}
+
 // playerError不用改可以直接用
 void playerError(int player, const string code)
 {
 	outputValue["display"]["action"] = code;
 	outputValue["display"]["player"] = player;
 	outputValue["command"] = "finish";
+	int s[4] = { 0 };
 	for (int i = 0; i < 4; i++) {
 		if (i == player) {
-			outputValue["display"]["score"][i] = -33000;
-			outputValue["content"][to_string(i)]["finalscore"] = -33000;
+			s[i] -= 32000 * 3;
 		}
 		else {
-			outputValue["display"]["score"][i] = 11000;
-			outputValue["content"][to_string(i)]["finalscore"] = 11000;
+			s[i] += 32000;
 		}
+		if (g.players[i].isLiZhi) {
+			s[i] -= 1000;
+		}
+	}
+
+
+	for (int i = 0; i < 4; i++) {
+		outputValue["display"]["score"][i] = s[i];
+		outputValue["content"][to_string(i)] = s[i];
 	}
 	// outputValue["display"]["prompt"] = promptsForDisplay;
 	cout << outputValue;
 	exit(0);
 }
 
-// checkHu 需要给出最后的结果——多少分数、有哪些番、番数多少、符数多少
-// checkHu 里不判断是否振听，只在调用之后考虑。checkHu只在满足能胡条件下，是否有役
-// 进checkHu函数的player手牌中不含c
-vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // 能进到这个函数的，一定是满足了能胡牌的条件的
+// check_HU 需要给出最后的结果——多少分数、有哪些番、番数多少、符数多少
+// check_HU 里不判断是否振听，只在调用之后考虑。check_HU只在满足能胡条件下，是否有役
+// 进check_HU函数的player手牌中不含c
+vector<FanFu> check_HU(int player, const string c, int offer, bool finish) { // 能进到这个函数的，一定是满足了能胡牌的条件的
 	auto & p = g.players[player];
 
 	vector<Tiles> tmp;
@@ -2325,20 +2319,24 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 	bool isGuoShi = false, isQiDuiZi = false, isYaKuMan = false;
 
 	vector<int> namesFan;
-	vector<string> hc = p.handTiles;
+	vector<string> hc = p.handTiles, oc = p.ownTiles;
 	hc.push_back(c);
-	vector<vector<int> > nums = string_to_34_tiles(hc, true);
+	oc.push_back(c);
+	vector<vector<int> > nums = string_to_34_tiles(hc, true), nums2 = string_to_34_tiles(oc, true);
+
+
 	int numRedFive = 0, numBaoPai = 0, numLiBaoPai = 0; // 计算各种宝牌的数量
 	int score = 0, fan = 0, fu = 0, maxScore = 0, maxScoreFan = 0, maxScoreFu = 0;
-	auto ownTiles = p.retOwnTiles(true);
+	auto ownTiles = p.get_own_tiles(true);
+	ownTiles.push_back(c);
 
 	for (int _id = 0; _id < 3; _id++) {
-		numRedFive += nums[_id][0];
+		numRedFive += nums2[_id][0];
 		nums[_id][5] += nums[_id][0];
 		nums[_id][0] = 0;
 	}
 
-	vector<vector<Tiles>> allCombinations = getAllCombinations(nums);
+	vector<vector<Tiles>> allCombinations = get_all_combinations(nums);
 
 	if (p.anGangTiles.empty() && p.mingTiles.empty()) {
 		for (auto & yaku : specialYiZhong) {
@@ -2368,28 +2366,30 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 		maxScoreFanFu = vecFanFu;
 		for (auto & yaku : vecFanFu)
 			maxScoreFan += yaku.fan;
-		maxScore = getScore(maxScoreFan, 0, true);
+		maxScore = get_score(maxScoreFan, 0, true);
 	}
 	else { // 对于每一种拆牌都check一下常见役种
 		string baopai[2] = { "234567891",  "2341675" };
 		for (int i = 0; i <= g.numOfGang; i++) {
 			string t = g.baoPaiZhiShiTiles[0][i];
+			if (t[1] == '0') t[1] = '5';
 			t[1] = baopai[t[0] == 'Z'][t[1] - '1'];
 			for (auto & x : ownTiles)
-				if (isTileSame(t, x))
+				if (is_same_tile(t, x))
 					numBaoPai++;
 			if (g.players[player].isLiZhi) {
 				string t = g.baoPaiZhiShiTiles[1][i];
+				if (t[1] == '0') t[1] = '5';
 				t[1] = baopai[t[0] == 'Z'][t[1] - '1'];
 				for (auto & x : ownTiles)
-					if (isTileSame(t, x))
+					if (is_same_tile(t, x))
 						numLiBaoPai++;
 			}
 		}
 		// 计算符数
 		int baseFu = 20;
 
-		int tingType = checkTingType(hc, c, 1);
+		int tingType = get_ting_type(hc, c, 1);
 		if (tingType & (QIAN_ZHANG | DAN_JI | BIAN_ZHANG)) // 胡牌时嵌张、单骑、边张时加2符
 			baseFu += 2;
 		baseFu += 2 * (player == offer); // 自摸时加2符
@@ -2404,17 +2404,17 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 		// 刻杠类
 		// 计算暗杠
 		for (auto & x : g.players[player].anGangTiles) {
-			if (isYaoJiu(x[0])) baseFu += 32;
+			if (is_yao_jiu(x[0])) baseFu += 32;
 			else baseFu += 16;
 		}
 		// 计算明刻明杠
 		for (auto & x : g.players[player].mingTiles) {
 			if (x.size() == 4) {
-				if (isYaoJiu(x[0])) baseFu += 16;
+				if (is_yao_jiu(x[0])) baseFu += 16;
 				else baseFu += 8;
 			}
-			else if (isTileSame(x[0], x[1])) {
-				if (isYaoJiu(x[0])) baseFu += 4;
+			else if (is_same_tile(x[0], x[1])) {
+				if (is_yao_jiu(x[0])) baseFu += 4;
 				else baseFu += 2;
 			}
 		}
@@ -2439,7 +2439,7 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 			for (auto & x : tmpFanFu)
 				fan += x.fan;
 			fu = 25;
-			score = getScore(fan, fu, false);
+			score = get_score(fan, fu, false);
 			maxScoreFanFu = tmpFanFu;
 			maxScore = score;
 			maxScoreFan = fan;
@@ -2468,32 +2468,35 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 					if (yaku.id == ER_BEI_KOU) { // 二杯口一定有七对，但是只能存一
 						auto it = tmpFanFu.begin();
 						auto v = it->names;
-						if (find(v.begin(), v.end(), ER_BEI_KOU) != v.end())
+						if (find(v.begin(), v.end(), QI_DUI_ZI) != v.end())
 							tmpFanFu.erase(it);
 					}
 				}
 			}
 
-			if (numBaoPai) tmpFanFu.push_back(FanFu({ BAO_PAI }, numBaoPai, 0, 0));
-			if (numRedFive) tmpFanFu.push_back(FanFu({ HONG_BAO_PAI }, numRedFive, 0, 0));
-			if (hasLiZhi && numLiBaoPai) tmpFanFu.push_back(FanFu({ LI_BAO_PAI }, numLiBaoPai, 0, 0));
+			if (!tmpFanFu.empty()) {
+				if (numBaoPai) tmpFanFu.push_back(FanFu({ BAO_PAI }, numBaoPai, 0, 0));
+				if (numRedFive) tmpFanFu.push_back(FanFu({ HONG_BAO_PAI }, numRedFive, 0, 0));
+				if (hasLiZhi && numLiBaoPai) tmpFanFu.push_back(FanFu({ LI_BAO_PAI }, numLiBaoPai, 0, 0));
 
-			for (auto & x : tmpFanFu) {
-				fan += x.fan;
-				fu = max(fu, x.fu);
+				for (auto & x : tmpFanFu) {
+					fan += x.fan;
+					fu = max(fu, x.fu);
+				}
+				fu += baseFu;
+				if (hasPingHu) fu = tmpFu; // 平胡
+				fu = fu + (10 - (fu % 10)) % 10; // 等价于int(ceil(1.0 * fu / 10) * 10); 
+
+				score = get_score(fan, fu, false);
+
+				if (score > maxScore) {
+					maxScoreFanFu = tmpFanFu;
+					maxScore = score;
+					maxScoreFan = fan;
+					maxScoreFu = fu;
+				}
 			}
-			fu += baseFu;
-			if (hasPingHu) fu = tmpFu; // 平胡
-			fu = fu + (10 - (fu % 10)) % 10; // 等价于int(ceil(1.0 * fu / 10) * 10); 
 
-			score = getScore(fan, fu, false);
-
-			if (score > maxScore) {
-				maxScoreFanFu = tmpFanFu;
-				maxScore = score;
-				maxScoreFan = fan;
-				maxScoreFu = fu;
-			}
 		}
 		// allScores.push_back(1);
 
@@ -2509,6 +2512,7 @@ vector<FanFu> checkHu(int player, const string c, int offer, bool finish) { // �
 		}
 		outputValue["display"][to_string(player)]["isYaKuMan"] = isYaKuMan;
 		outputValue["display"][to_string(player)]["action"] = "HU";
+		outputValue["display"]["action"] = "HU";
 		outputValue["display"][to_string(player)]["player"] = player;
 		outputValue["display"][to_string(player)]["fanCnt"] = maxScoreFan;
 		if (!isYaKuMan)
@@ -2541,7 +2545,7 @@ void checkInputPASS(const Json::Value &playerOutput, int player, bool isPLAY)
 	if (isPLAY && lastTile.size() == 2 && roundStage >= 4) {
 		// 需要多判断一下振听情况
 		auto & p = g.players[player];
-		if (p.checkHuPrerequisite(lastTile, roundStage % 4)) {
+		if (p.check_hu_prerequisite(lastTile, roundStage % 4)) {
 			if (player == roundStage % 4)
 				p.isZhenTing[0] = true; // 舍张振听
 			else
@@ -2564,27 +2568,58 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 	boost::split(outputList, outputString, boost::is_any_of(" "));
 	if (outputList.size() == 1) {
 		if (outputList[0] == "HU") {
-			if (!p.checkHuPrerequisite(lastTile, player))
+			if (!p.check_hu_prerequisite(lastTile, player))
 				playerError(player, "WA");
 			// 自己摸牌的时候不会点别人
 			// 也不用考虑振听情况，只需要有役即可
-			auto vecRes = checkHu(player, lastTile, player, true);
+			auto vecRes = check_HU(player, lastTile, player, true);
 			if (vecRes.empty()) playerError(player, "WA");
-			int maxScore = outputValue["display"][to_string(player)]["ScoreCnt"].asInt();
+			int basepoint = outputValue["display"][to_string(player)]["ScoreCnt"].asInt(), maxScore;
 			// if (p.pos == p.changFeng) maxScore = ceil(1.5 * maxScore);
-			maxScore = ceil(1.0 * maxScore / 300) * 300;
-			outputValue["display"][to_string(player)]["ScoreCnt"] = maxScore;
+			int score[4] = { 0 };
+			int lizhiScore = 0;
 			for (int i = 0; i < 4; i++) {
-				if (i == player) {
-					outputValue["display"]["score"][i] = 25000 + maxScore;
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + maxScore;
-				}
-				else {
-					outputValue["display"]["score"][i] = 25000 - maxScore / 3;
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 - maxScore / 3;
+				if (g.players[i].isLiZhi) {
+					lizhiScore += 1000;
+					score[i] -= 1000;
 				}
 			}
-			outputValue["display"]["prompt"] = promptsForDisplay;
+
+			if (player == g.changFeng) {
+				// 庄家自摸胡牌，三人各自承担2a
+				maxScore = ceil(basepoint * 2 / 100.0) * 300;
+				score[player] += maxScore + lizhiScore;
+				for (int i = 0; i < 4; i++) {
+					if (i != player) {
+						score[i] -= maxScore / 3;
+					}
+				}
+			}
+			else {
+				// 闲家自摸胡牌，庄家要承担一半的分数，其余两家要承担四分之一的分数。需要是100的整数倍
+				score[g.changFeng] -= ceil(basepoint * 2 / 100.0) * 100;
+				for (int i = 0; i < 4; i++) {
+					if (i != g.changFeng && i != player) {
+						score[i] -= ceil(basepoint / 100.0) * 100;
+					}
+				}
+				maxScore = ceil(basepoint * 2 / 100.0) * 100 + ceil(basepoint / 100.0) * 200;
+				score[player] += maxScore + lizhiScore;
+			}
+
+			outputValue["display"][to_string(player)]["ScoreCnt"] = maxScore;
+
+			for (int i = 0; i < 4; i++) {
+				outputValue["display"]["score"][i] = 25000 + score[i];
+				outputValue["content"][to_string(i)] = 25000 + score[i];
+			}
+
+			if (g.players[player].isLiZhi) {
+				Json::Value info;
+				show_hidden_dora_indicators(info);
+				outputValue["display"]["hiddenDoraIndicators"] = info["hiddenDoraIndicators"];
+			}
+
 			cout << outputValue;
 			exit(0);
 		}
@@ -2592,17 +2627,19 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 	else if (outputList.size() == 2) {
 		auto ting_bef = g.get_ting_tiles(player);
 		auto oldplayer = g.players[player];
+		if (outputList[0] == "PLAY" || outputList[0] == "LIZHI")
+			isPlayDrawnTileOnly = (find(p.handTiles.begin(), p.handTiles.end(), outputList[1]) == p.handTiles.end());
 		p.handTiles.push_back(lastTile);
 		string befTile = lastTile; // befTile 是之前抽到的牌
 		lastTile = outputList[1]; // lastTile 是这次打出去的牌，要么是暗杠的牌，要么是选择进行补杠的牌
 		if (outputList[0] == "PLAY") {
-			if (currBUGANG || currGANG)
-				g.numOfGang += currBUGANG + currGANG;
+			if (lastBUGANG || currGANG)
+				g.numOfGang += lastBUGANG + currGANG;
 			if (p.isLiZhi) { // 立直了就不管看他到底是想出什么牌，随便。但是摸到就打
 				lastTile = befTile;
 				p.isYiFa = false;
 			}
-			vector<string>::iterator curr = find(p.handTiles.begin(), p.handTiles.end(), lastTile);
+			auto curr = find(p.handTiles.begin(), p.handTiles.end(), lastTile);
 			if (curr != p.handTiles.end()) {
 				p.handTiles.erase(curr);
 				lastOp = "PLAY";
@@ -2611,7 +2648,7 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 				return;
 			}
 		}
-		else if (outputList[0] == "ANGANG") { 
+		else if (outputList[0] == "ANGANG") {
 			// 做暗杠需要告知是什么牌，因为有可能来一张能暗杠的牌，但是先留着之后再暗杠。
 			tileGANG = lastTile;
 			auto it = p.handTiles.begin();
@@ -2619,7 +2656,7 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 
 			vector<string> tiles;
 			for (; it != p.handTiles.end();) {
-				if (isTileSame(*it, lastTile)) {
+				if (is_same_tile(*it, lastTile)) {
 					tiles.push_back(*it);
 					it = p.handTiles.erase(it);
 					n++;
@@ -2630,10 +2667,10 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 			if (n != 4 || g.mountainTiles.size() <= 4 || g.numOfGang >= 4)
 				playerError(player, "WA");
 			if (p.isLiZhi) { // 立直后，只有不影响听牌的杠才能成立
-				// 只有不改变面子手的暗杠能成立
-				// 比如66678999s 22w 567p，来6s或9s均不能暗杠，因为杠之后再胡2w就变成
-				
-				if (!isTileSame(befTile, lastTile)) // 立直后，只能对摸牌进行暗杠
+							 // 只有不改变面子手的暗杠能成立
+							 // 比如66678999s 22w 567p，来6s或9s均不能暗杠，因为杠之后再胡2w就变成
+
+				if (!is_same_tile(befTile, lastTile)) // 立直后，只能对摸牌进行暗杠
 					playerError(player, "WA");
 				auto ting_aft = g.get_ting_tiles(player);
 				bool flag = false;
@@ -2641,7 +2678,7 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 					flag = true;
 				else {
 					for (int i = 0; i < ting_bef.size(); i++) {
-						if (!isTileSame(ting_bef[i], ting_aft[i]))
+						if (!is_same_tile(ting_bef[i], ting_aft[i]))
 							flag = true;
 					}
 				}
@@ -2650,14 +2687,14 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 					oldplayer.handTiles.push_back(t);
 					vector<string> hc = oldplayer.handTiles;
 					vector<vector<int> > nums = string_to_34_tiles(hc, false);
-					vector<vector<Tiles>> allCombBef = getAllCombinations(nums);
+					vector<vector<Tiles>> allCombBef = get_all_combinations(nums);
 					for (auto tiles : allCombBef) { // 如果有任何一种胡牌方式里
 						if (flag) break;
 						for (auto & tile : tiles) { // 待暗杠的牌组成了面子，就不能暗杠
 							if (flag) break;
 							if (tile.type == "SHUNZI") {
 								for (auto & x : tile.part) {
-									if (isTileSame(x, lastTile)) {
+									if (is_same_tile(x, lastTile)) {
 										flag = true;
 										break;
 									}
@@ -2665,7 +2702,7 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 							}
 						}
 					}
-					oldplayer.deleteTile(t);
+					oldplayer.delete_tile(t);
 				}
 
 				if (flag) { // 杠会影响结果，所以不能杠，要变ANGANG为PLAY
@@ -2693,21 +2730,20 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 
 			auto it = p.handTiles.begin();
 			for (; it != p.handTiles.end(); it++) {
-				if (isTileSame(*it, lastTile))
+				if (is_same_tile(*it, lastTile))
 					break;
 			}
 			if (it == p.handTiles.end() || g.mountainTiles.size() <= 4 || g.numOfGang >= 4)
 				playerError(player, "WA");
 			for (unsigned int i = 0; i < p.mingTiles.size(); i++) {
 				auto &x = p.mingTiles[i];
-				if (x.size() == 3 && isTileSame(x[0], x[1]) && isTileSame(x[1], lastTile)) {
+				if (x.size() == 3 && is_same_tile(x[0], x[1]) && is_same_tile(x[1], lastTile)) {
 					roundStage = player + 8;
 					p.mingTiles[i].push_back(lastTile);
 					p.handTiles.erase(it);
 					return;
 				}
 			}
-			playerError(player, "WA");
 		}
 		// 立直
 		else if (outputList[0] == "LIZHI") {
@@ -2715,13 +2751,10 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 				playerError(player, "WA");
 			}
 
-			vector<string>::iterator curr = find(
-				p.handTiles.begin(),
-				p.handTiles.end(),
-				lastTile);
+			auto curr = find(p.handTiles.begin(), p.handTiles.end(), lastTile);
 			if (curr != p.handTiles.end()) {
 				p.handTiles.erase(curr);
-				p.isLiZhi = p.isYiFa = true;
+
 				lastOp = "LIZHI";
 				roundStage = player + 12;
 				p.outTiles.push_back(lastTile);
@@ -2732,7 +2765,7 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 				bool flag = true; // 用来标记是否能够解除舍张振听
 				for (auto & x : tingTiles)
 					for (auto & y : p.outTiles)
-						if (isTileSame(x, y)) {
+						if (is_same_tile(x, y)) {
 							p.isZhenTing[0] = p.isZhenTing[2] = true;
 							flag = false;
 							break;
@@ -2743,8 +2776,9 @@ void checkInputDRAW(Json::Value &playerOutput, int player)
 				return;
 			}
 		}
+
 	}
-	return;
+	playerError(player, "WA");
 }
 
 
@@ -2756,33 +2790,44 @@ void checkInputPLAY1(Json::Value &playerOutput, int player)
 		playerError(player, playerOutput["verdict"].asString());
 	}
 	string outputString = playerOutput["response"].asString();
+
+	vector<string> outputList;
+	boost::split(outputList, outputString, boost::is_any_of(" "));
+
 	auto & p = g.players[player];
-	if (outputString == "HU") {
-		// 这里需要处理的是checkHu里面要不要有处理振听情况。要理清楚HU与振听的关系
-		auto vecRes = checkHu(player, lastTile, roundStage % 4, true);
-		if (vecRes.empty()) playerError(player, "WA");
-		// 在所有checkHu的地方都要check是否有振听的情况
-		bool isSheZhangZhenTing = false; // 先更新一下舍张振听的情况
-		for (auto & x : p.outTiles)
-			if (p.checkHuPrerequisite(x, player))
-				isSheZhangZhenTing = true;
-		if (isSheZhangZhenTing) // 舍张振听只有自摸且有役才能解
-			p.isZhenTing[0] = true;
-		else
-			p.isZhenTing[0] = false;
-		if (p.isZhenTing[0] || p.isZhenTing[1] || p.isZhenTing[2]) {
-			outputValue["command"] = "request";
-			playerOutput["response"] = "PASS";
-		}
-	}
-	// 处理振听
-	if (outputString == "PASS") {
-		if (p.checkHuPrerequisite(lastTile, roundStage % 4)) {
-			if (p.isLiZhi)
-				p.isZhenTing[2] = true; // 立直振听
+
+	if (outputList.size() == 1) {
+		if (outputString == "HU") {
+			// 这里需要处理的是check_HU里面要不要有处理振听情况。要理清楚HU与振听的关系
+			if (!p.check_hu_prerequisite(lastTile, roundStage % 4))
+				playerError(player, "WA");
+			auto vecRes = check_HU(player, lastTile, roundStage % 4, true);
+			if (vecRes.empty()) playerError(player, "WA");
+			// 在所有check_HU的地方都要check是否有振听的情况
+			bool isSheZhangZhenTing = false; // 先更新一下舍张振听的情况
+			for (auto & x : p.outTiles)
+				if (p.check_hu_prerequisite(x, player))
+					isSheZhangZhenTing = true;
+			if (isSheZhangZhenTing) // 舍张振听只有自摸且有役才能解
+				p.isZhenTing[0] = true;
 			else
-				p.isZhenTing[1] = true; // 同巡振听
+				p.isZhenTing[0] = false;
+			if (p.isZhenTing[0] || p.isZhenTing[1] || p.isZhenTing[2]) {
+				// 唯一处理过的地方
+				outputValue["command"] = "request";
+				playerOutput["response"] = "PASS";
+			}
 		}
+		// 处理振听
+		else if (outputString == "PASS") {
+			if (p.check_hu_prerequisite(lastTile, roundStage % 4)) {
+				if (p.isLiZhi) p.isZhenTing[2] = true; // 立直振听
+				else p.isZhenTing[1] = true; // 同巡振听
+			}
+		}
+		else if (outputString == "GANG") { }
+		else
+			playerError(player, "WA");
 	}
 }
 //2检查碰牌、杠牌
@@ -2794,7 +2839,6 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 	boost::split(outputList, outputString, boost::is_any_of(" "));
 	if (outputList.size() == 1) {
 		if (outputList[0] == "PASS") {
-			// checkInputPASS(playerOutput, player); //  好像没有必要
 			return false;
 		}
 		else if (outputList[0] == "GANG" && g.mountainTiles.size() > 4 && g.numOfGang < 4) {
@@ -2803,7 +2847,7 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 			int n = 0;
 			vector<string> tiles{ lastTile };
 			for (; it != p.handTiles.end();) {
-				if (isTileSame(*it, lastTile)) {
+				if (is_same_tile(*it, lastTile)) {
 					tiles.push_back(*it);
 					it = p.handTiles.erase(it);
 					n++;
@@ -2826,7 +2870,7 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 		}
 		playerError(player, "WA");
 	}
-	else if (outputList.size() == 4) {
+	else if (outputList.size() == 5) {
 		if (outputList[0] == "PENG" && g.mountainTiles.size() > 4) {
 			isMingPai = true;
 			for (int i = 0; i < 4; i++)
@@ -2834,29 +2878,28 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 					g.players[i].isYiFa = false;
 			// outputList里，第二个和第三个是要碰掉的牌，第四个string是打出的牌
 			vector<string> tiles{ lastTile };
-			if (!isTileSame(lastTile, outputList[1]) || !isTileSame(lastTile, outputList[2]))
-				playerError(player, "WA");
-			auto it = find(p.handTiles.begin(), p.handTiles.end(), outputList[1]);
-			if (it == p.handTiles.end())
-				playerError(player, "WA");
-			p.handTiles.erase(it);
-			tiles.push_back(outputList[1]);
-			it = find(p.handTiles.begin(), p.handTiles.end(), outputList[2]);
+			if (lastTile != outputList[1] || !is_same_tile(lastTile, outputList[2])
+				|| !is_same_tile(lastTile, outputList[3]) || is_same_tile(lastTile, outputList[4]))
+				playerError(player, "WA");// 不能碰掉一样的牌，然后又打出去一张
+			auto it = find(p.handTiles.begin(), p.handTiles.end(), outputList[2]);
 			if (it == p.handTiles.end())
 				playerError(player, "WA");
 			p.handTiles.erase(it);
 			tiles.push_back(outputList[2]);
+			it = find(p.handTiles.begin(), p.handTiles.end(), outputList[3]);
+			if (it == p.handTiles.end())
+				playerError(player, "WA");
+			p.handTiles.erase(it);
+			tiles.push_back(outputList[3]);
 
 			p.mingTiles.push_back(tiles);
 			p.mingTilesOffer.push_back(make_pair(roundStage % 4, lastTile));
 			lastOp = "PENG";
 			roundStage = player + 8;
 
-			if (isTileSame(lastTile, outputList[3])) // 不能碰掉一样的牌，然后又打出去一张
-				playerError(player, "WA");
-			tilePENG = lastTile + " " + outputList[1] + " " + outputList[2];
+			tilePENG = outputList[1] + " " + outputList[2] + " " + outputList[3];
 
-			lastTile = outputList[3];
+			lastTile = outputList[4];
 			it = find(p.handTiles.begin(), p.handTiles.end(), lastTile);
 			if (it == p.handTiles.end())
 				playerError(player, "WA");
@@ -2870,7 +2913,7 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 			if (!tingTiles.empty()) {
 				for (auto & x : tingTiles) {
 					for (auto & y : p.outTiles) {
-						if (isTileSame(x, y)) {
+						if (is_same_tile(x, y)) {
 							p.isZhenTing[0] = true;
 							flag = false;
 							break;
@@ -2883,7 +2926,9 @@ bool checkInputPLAY2(const Json::Value &playerOutput, int player)
 
 			return true;
 		}
-		playerError(player, "WA");
+
+		if (outputList[0] != "CHI")
+			playerError(player, "WA");
 	}
 	return false;
 }
@@ -2903,6 +2948,7 @@ bool checkInputPLAY3(const Json::Value &playerOutput, int player)
 		for (int i = 0; i < 4; i++)
 			if (g.players[i].isLiZhi)
 				g.players[i].isYiFa = false;
+
 		if ((lastTile[0] != 'W' && lastTile[0] != 'B' && lastTile[0] != 'T') ||
 			(outputList[2][0] != lastTile[0]) || (outputList[3][0] != lastTile[0]) ||
 			(outputList[3] == lastTile) || (outputList[2] == lastTile) || (outputList[3] == outputList[2]))
@@ -2927,12 +2973,12 @@ bool checkInputPLAY3(const Json::Value &playerOutput, int player)
 		vector<string> cannotOut{ lastTile };
 		sort(tiles.begin(), tiles.end());
 		string left = tiles[0], right = tiles[2];
-		if (isTileSame(left, lastTile) && right[1] < '9') {
+		if (is_same_tile(left, lastTile) && right[1] < '9') {
 			right[1]++;
 			cannotOut.push_back(right);
 			right[1]--;
 		}
-		if (isTileSame(right, lastTile) && left[1] > '1') {
+		if (is_same_tile(right, lastTile) && left[1] > '1') {
 			left[1]--;
 			cannotOut.push_back(left);
 			left[1]++;
@@ -2948,12 +2994,12 @@ bool checkInputPLAY3(const Json::Value &playerOutput, int player)
 		lastOp = "CHI";
 		tileCHI = lastTile;
 		for (auto & x : tiles) {
-			if (isTileSame(x, lastTile))
+			if (is_same_tile(x, lastTile))
 				continue;
 			tileCHI += " " + x;
 		}
 		for (auto & x : cannotOut)
-			if (isTileSame(x, outputList[4]))
+			if (is_same_tile(x, outputList[4]))
 				playerError(player, "WA"); // 不能吃掉一张，然后再打出相同的一张。或者可替代的。
 		lastTile = outputList[4];
 		it = find(p.handTiles.begin(), p.handTiles.end(), lastTile);
@@ -2970,7 +3016,7 @@ bool checkInputPLAY3(const Json::Value &playerOutput, int player)
 		if (!tingTiles.empty()) {
 			for (auto & x : tingTiles) {
 				for (auto & y : p.outTiles) {
-					if (isTileSame(x, y)) {
+					if (is_same_tile(x, y)) {
 						p.isZhenTing[0] = true;
 						flag = false;
 						break;
@@ -2983,6 +3029,7 @@ bool checkInputPLAY3(const Json::Value &playerOutput, int player)
 			p.isZhenTing[0] = false;
 		return true;
 	}
+
 	return false;
 }
 
@@ -2998,17 +3045,17 @@ void checkInputGANG(const Json::Value &playerOutput, int player)
 		return;
 	}
 	if (lastBUGANG && roundStage % 4 != player && playerOutput["response"] == "HU") {
-		if (!g.players[player].checkHuPrerequisite(lastTile, player))
+		if (!g.players[player].check_hu_prerequisite(lastTile, player))
 			playerError(player, "WA");
-		auto vecRes = checkHu(player, lastTile, roundStage % 4, true);
+		auto vecRes = check_HU(player, lastTile, roundStage % 4, true);
 		if (vecRes.empty()) playerError(player, "WA");
 	}
 	// 特殊判断国士无双可以抢暗杠
 	if (lastANGANG && roundStage % 4 != player && playerOutput["response"] == "HU") {
-		if (isYaoJiu(lastTile)) {
-			int res = g.players[player].checkHuPrerequisite(lastTile, player) - 100;
+		if (is_yao_jiu(lastTile)) {
+			int res = g.players[player].check_hu_prerequisite(lastTile, player) - 100;
 			if (res == GUO_SHI_WU_SHUANG || res == GUO_SHI_WU_SHUANG_SHI_SAN_MIAN) {
-				auto vecRes = checkHu(player, lastTile, roundStage % 4, true);
+				auto vecRes = check_HU(player, lastTile, roundStage % 4, true);
 				if (vecRes.empty()) playerError(player, "WA");
 			}
 		}
@@ -3038,8 +3085,7 @@ void roundOutput(Json::Value &outputValue)
 			// outputValue["content"][to_string(i)] = outputString;
 			Json::Value info;
 			info["handTiles"] = outputString;
-			showDoraIndicators(info);
-
+			show_dora_indicators(info);
 			outputValue["content"][to_string(i)]["handTiles"] = info["handTiles"];
 			outputValue["content"][to_string(i)]["doraIndicators"] = info["doraIndicators"];
 			// outputValue["content"][to_string(i)].append(info);
@@ -3057,44 +3103,65 @@ void roundOutput(Json::Value &outputValue)
 				for (auto & x : p.mingTilesOffer)
 					liuman[x.first] = false;
 				for (auto & x : p.outTiles) {
-					if (!isYaoJiu(x)) {
+					if (!is_yao_jiu(x)) {
 						liuman[i] = false;
 						break;
 					}
 				}
 			}
 
+			Json::Value details;
 			for (int i = 0; i < 4; i++)
 				cntLiuman += liuman[i];
 			if (cntLiuman) {
+				// 流局满贯的优先级要比听牌罚符要高
 				int s[4] = { 0 };
-				if (cntLiuman == 1) {
-					for (int i = 0; i < 4; i++) {
-						if (liuman[i]) s[i] = 8100;
-						else s[i] = -2700;
-					}
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi)
+						s[i] -= 1000;
 				}
-				else if (cntLiuman == 2) {
-					for (int i = 0; i < 4; i++) {
-						if (liuman[i]) s[i] = 8000;
-						else s[i] = -8000;
-					}
-				}
-				else if (cntLiuman == 3) {
-					for (int i = 0; i < 4; i++) {
-						if (liuman[i]) s[i] = 8000;
-						else s[i] = -24000;
+
+
+				// 计算得分
+				for (int i = 0; i < 4; i++) {
+					if (liuman[i]) {
+						if (i == g.changFeng) {
+							// 庄家的流满，需要闲家各付4000
+							s[i] += 12000;
+							for (int j = 0; j < 4; j++) {
+								if (j == i) continue;
+								s[j] -= 4000;
+							}
+						}
+						else {
+							// 闲家的流满，需要庄家付4000，闲家付2000
+							s[i] += 8000;
+							for (int j = 0; j < 4; j++) {
+								if (j == i) continue;
+								if (j == g.changFeng) s[j] -= 4000;
+								else s[j] -= 2000;
+							}
+						}
 					}
 				}
 
 				for (int i = 0; i < 4; i++) {
 					outputValue["display"]["score"][i] = 25000 + s[i];
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
+					if (liuman[i])
+						details[to_string(i)] = "LIUMAN";
+					else
+						details[to_string(i)] = "NOLIUMAN";
 				}
+
 			}
 			else {
 				bool isTing[4] = { false };
 				int s[4] = { 0 }, cntTing = 0;
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi)
+						s[i] -= 1000;
+				}
 				for (int i = 0; i < 4; i++) {
 					auto res = g.get_ting_tiles(i);
 					if (!res.empty()) {
@@ -3105,17 +3172,21 @@ void roundOutput(Json::Value &outputValue)
 				if (cntTing >= 1 && cntTing <= 3) {
 					for (int i = 0; i < 4; i++) {
 						if (isTing[i])
-							s[i] = 3000 / cntTing;
+							s[i] += 3000 / cntTing;
 						else
-							s[i] = -3000 / cntTing;
+							s[i] -= 3000 / (4 - cntTing);
 					}
 				}
 				for (int i = 0; i < 4; i++) {
 					outputValue["display"]["score"][i] = 25000 + s[i];
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
+					if (isTing[i])
+						details[to_string(i)] = "TING";
+					else
+						details[to_string(i)] = "NOTING";
 				}
 			}
-
+			outputValue["display"]["details"] = details;
 			return;
 		}
 
@@ -3131,40 +3202,38 @@ void roundOutput(Json::Value &outputValue)
 		outputValue["display"]["action"] = "DRAW";
 		outputValue["display"]["player"] = roundStage;
 		outputValue["display"]["tile"] = lastTile;
-		
-		promptsForDisplay.clear();
-		promptsForPlayers.clear();
+
 		ExtraInfo exinfo;
 		exinfo.check(g, lastTile, roundStage % 4, true);
 		string extraStr = "";
 		for (int i = 0; i < 8; i++) {
 			if (exinfo.actionList[roundStage % 4][i]) {
-				extraStr += ActionName[i] + " ";
+				extraStr += ActionName[i];
 				if (i == LIZHI) {
 					for (auto & tile : exinfo.vecstrLiZhiTiles[roundStage % 4]) {
-						extraStr += tile + " ";
+						extraStr += " " + tile;
 					}
 				}
 				extraStr += ",";
 			}
 		}
+		if (extraStr.length() != 0) {
+			extraStr.pop_back();
+		}
 		for (int i = 0; i < 4; i++) {
 			Json::Value info;
-			showDoraIndicators(info);
+			show_dora_indicators(info);
 			if (roundStage % 4 == i) {
 				info["action"] = "2 " + lastTile;
 				if (extraStr.length() != 0) {
 					promptsForDisplay[to_string(i)]["validact"] = extraStr;
-					promptsForPlayers[to_string(i)]["validact"] = extraStr;
 				}
-					
 			}
 			else {
 				info["action"] = "3 " + to_string(roundStage % 4) + " DRAW";
 			}
 			outputValue["content"][to_string(i)]["state"] = info["action"];
 			outputValue["content"][to_string(i)]["doraIndicators"] = info["doraIndicators"];
-			outputValue["content"][to_string(i)]["validact"] = promptsForPlayers[to_string(i)]["validact"];
 			// outputValue["content"][to_string(i)].append(info);
 		}
 	}
@@ -3186,7 +3255,8 @@ void roundOutput(Json::Value &outputValue)
 
 		for (int i = 0; i < 4; i++) {
 			Json::Value info;
-			showDoraIndicators(info);
+			show_dora_indicators(info);
+
 			if (lastOp == "CHI") { // CHI 后面会跟四张牌，前三张是组成顺子的，其中第一张是吃的牌。第四张是自己打出的牌。
 				info["action"] = "3 " + to_string(roundStage % 4) + " CHI " + tileCHI + " " + lastTile;
 			}
@@ -3196,60 +3266,59 @@ void roundOutput(Json::Value &outputValue)
 			else {
 				info["action"] = "3 " + to_string(roundStage % 4) + " " + lastOp + " " + lastTile;
 			}
+			outputValue["content"][to_string(i)].clear();
 			outputValue["content"][to_string(i)]["state"] = info["action"];
 			outputValue["content"][to_string(i)]["doraIndicators"] = info["doraIndicators"];
-			outputValue["content"][to_string(i)]["validact"] = promptsForPlayers[to_string(i)]["validact"];
-			// outputValue["content"][to_string(i)].append(info);
-
-
-			if (g.players[i].checkHuPrerequisite(lastTile, roundStage % 4)) {
-				auto vecRes = checkHu(i, lastTile, roundStage % 4, false);
-				if (vecRes.empty())
-					outputValue["display"]["canHu"][i] = 0;
-				else
-					outputValue["display"]["canHu"][i] = vecRes[0].score;
+			if (lastOp == "PLAY") {
+				// 是否摸切
+				outputValue["content"][to_string(i)]["playDrawnTile"] = isPlayDrawnTileOnly;
 			}
 		}
+
+		ExtraInfo exinfo;
+		string extraStr[4] = { "", "", "", "" };
+		exinfo.check(g, lastTile, roundStage % 4, false);
+		for (int playerID = 0; playerID < 4; playerID++) {
+			if (playerID == roundStage % 4)
+				continue;
+			for (int i = 0; i < 8; i++) {
+				if (exinfo.actionList[playerID][i]) {
+					extraStr[playerID] += ActionName[i] + ",";
+				}
+			}
+			if (extraStr[playerID].length() != 0) {
+				extraStr[playerID].pop_back();
+			}
+		}
+		for (int i = 0; i < 4; i++) {
+			if (roundStage % 4 != i && extraStr[i].length() != 0) {
+				promptsForDisplay[to_string(i)]["validact"] = extraStr[i];
+			}
+		}
+
 	}
 	else if (roundStage >= 8 && roundStage < 12) {
 		string cOp = "GANG " + lastTile;
 		if (lastANGANG) {
 			cOp = "ANGANG " + lastTile;
-			if (isYaoJiu(lastTile)) {
-				for (int i = 0; i < 4; i++) {
-					if (roundStage % 4 != i) {
-						if (g.players[i].checkHuPrerequisite(lastTile, roundStage % 4)) {
-							auto vecRes = checkHu(i, lastTile, roundStage % 4, false);
-							if (vecRes.empty()) outputValue["display"]["canHu"][i] = 0;
-							else outputValue["display"]["canHu"][i] = vecRes[0].score;
-						}
-					}
-				}
-			}
 			outputValue["display"]["action"] = "ANGANG";
 		}
 		else {
 			if (lastBUGANG) {
 				cOp = "BUGANG " + lastTile;
-				for (int i = 0; i < 4; i++) {
-					if (roundStage % 4 != i) {
-						if (g.players[i].checkHuPrerequisite(lastTile, i)) {
-							auto vecRes = checkHu(i, lastTile, roundStage % 4, false);
-							if (vecRes.empty()) outputValue["display"]["canHu"][i] = 0;
-							else {
-								outputValue["display"]["canHu"][i] = vecRes[0].score;
-							}
-						}
-					}
-				}
 				outputValue["display"]["action"] = "BUGANG";
 			}
 			else
 				outputValue["display"]["action"] = "GANG";
 		}
+		// outputValue["display"]["action"] = lastBUGANG ? "BUGANG" : "GANG";
+		outputValue["display"]["player"] = roundStage % 4;
+		outputValue["display"]["tile"] = lastTile;
+
 		ExtraInfo exinfo;
 		string extraStr[4] = { "", "", "", "" };
-		if ((lastANGANG && isYaoJiu(lastTile)) || lastBUGANG) {
+		promptsForDisplay.clear();
+		if ((lastANGANG && is_yao_jiu(lastTile)) || lastBUGANG) {
 			exinfo.check(g, lastTile, roundStage % 4, false);
 			for (int playerID = 0; playerID < 4; playerID++) {
 				if (playerID == roundStage % 4)
@@ -3259,22 +3328,25 @@ void roundOutput(Json::Value &outputValue)
 						extraStr[playerID] += ActionName[i] + ",";
 					}
 				}
+				if (extraStr[playerID].length() != 0) {
+					extraStr[playerID].pop_back();
+				}
 			}
-			
 		}
 
-		// outputValue["display"]["action"] = lastBUGANG ? "BUGANG" : "GANG";
-		outputValue["display"]["player"] = roundStage % 4;
-		outputValue["display"]["tile"] = lastTile;
-		promptsForDisplay.clear();
-		promptsForPlayers.clear();
+
+		Json::Value info;
+		show_dora_indicators(info);
+
 		for (int i = 0; i < 4; i++) {
+			outputValue["content"][to_string(i)].clear();
+			outputValue["content"][to_string(i)]["doraIndicators"] = info["doraIndicators"];
 			outputValue["content"][to_string(i)]["state"] = "3 " + to_string(roundStage % 4) + " " + cOp;
+
 			if (roundStage % 4 != i && extraStr[i].length() != 0) {
 				promptsForDisplay[to_string(i)]["validact"] = extraStr[i];
-				promptsForPlayers[to_string(i)]["validact"] = extraStr[i];
 			}
-				
+
 		}
 
 	}
@@ -3283,32 +3355,32 @@ void roundOutput(Json::Value &outputValue)
 		outputValue["display"]["action"] = lastOp;
 		outputValue["display"]["player"] = roundStage % 4;
 		outputValue["display"]["tile"] = lastTile;
+
+
+
+		Json::Value info;
+		show_dora_indicators(info);
+
 		for (int i = 0; i < 4; i++) {
+			outputValue["content"][to_string(i)].clear();
+			outputValue["content"][to_string(i)]["doraIndicators"] = info["doraIndicators"];
 			outputValue["content"][to_string(i)]["state"] = "3 " + to_string(roundStage % 4) + " " + lastOp + " " + lastTile;
-			if (roundStage % 4 != i) {
-				if (g.players[i].checkHuPrerequisite(lastTile, roundStage % 4)) {
-					auto vecRes = checkHu(i, lastTile, roundStage % 4, false);
-					if (vecRes.empty()) outputValue["display"]["canHu"][i] = 0;
-					else {
-						outputValue["display"]["canHu"][i] = vecRes[0].score;
-					}
-				}
-			}
+			outputValue["content"][to_string(i)]["playDrawnTile"] = isPlayDrawnTileOnly;
 		}
 		ExtraInfo exinfo;
 		string extraStr[4] = { "", "", "", "" };
 		promptsForDisplay.clear();
-		promptsForPlayers.clear();
-		if ((lastANGANG && isYaoJiu(lastTile)) || lastBUGANG) {
-			exinfo.check(g, lastTile, roundStage % 4, false);
-			for (int playerID = 0; playerID < 4; playerID++) {
-				if (playerID == roundStage % 4)
-					continue;
-				for (int i = 0; i < 8; i++) {
-					if (exinfo.actionList[playerID][i]) {
-						extraStr[playerID] += ActionName[i] + ",";
-					}
+		exinfo.check(g, lastTile, roundStage % 4, false);
+		for (int playerID = 0; playerID < 4; playerID++) {
+			if (playerID == roundStage % 4)
+				continue;
+			for (int i = 0; i < 8; i++) {
+				if (exinfo.actionList[playerID][i]) {
+					extraStr[playerID] += ActionName[i] + ",";
 				}
+			}
+			if (extraStr[playerID].length() != 0) {
+				extraStr[playerID].pop_back();
 			}
 		}
 
@@ -3316,7 +3388,6 @@ void roundOutput(Json::Value &outputValue)
 			if (roundStage % 4 != i) {
 				if (extraStr[i].length() != 0) {
 					promptsForDisplay[to_string(i)]["validact"] = extraStr[i];
-					promptsForPlayers[to_string(i)]["validact"] = extraStr[i];
 				}
 			}
 		}
@@ -3333,6 +3404,7 @@ void roundInput(Json::Value &inputValue)
 		roundStage++;
 	}
 	else if (roundStage >= 0 && roundStage < 4) {
+
 		for (int i = 0; i < 4; i++) {
 			if (roundStage != i) {
 				checkInputPASS(inputValue[to_string(i)], i, false);
@@ -3342,31 +3414,13 @@ void roundInput(Json::Value &inputValue)
 			}
 		}
 
-		
+
 		lastGANG = currGANG;
 		lastBUGANG = currBUGANG;
 		lastANGANG = currANGANG;
 		currGANG = currBUGANG = currANGANG = false;
 
-		ExtraInfo exinfo;
-		exinfo.check(g, lastTile, roundStage % 4, false);
-		string extraStr[4] = {"", "", "", ""};
-		promptsForDisplay.clear();
-		promptsForPlayers.clear();
-		for (int i = 0; i < 4; i++) {
-			if (i == roundStage % 4) continue;
-			for (int j = 0; j < 8; j++) {
-				if (exinfo.actionList[i][j])
-					extraStr[i] += ActionName[j] + ",";
-			}
-		}
-		for (int i = 0; i < 4; i++) {
-			if (roundStage % 4 != i && extraStr[i].length() != 0) {
-				promptsForDisplay[to_string(i)]["validact"] = extraStr[i];
-				promptsForPlayers[to_string(i)]["validact"] = extraStr[i];
-			}
-			
-		}
+
 	}
 	else if (roundStage >= 4 && roundStage < 8) {
 		// 先确认一下四杠散了
@@ -3387,12 +3441,16 @@ void roundInput(Json::Value &inputValue)
 			}
 			if (numPlayerGang >= 2) { // 当有两人及以上开了累计四次杠并在打出牌的那一刻，四杠散了
 				outputValue["command"] = "finish";
-				outputValue["display"]["action"] = "四杠散了";
+				outputValue["display"]["action"] = "SAN";
+				int s[4] = { 0 };
 				for (int i = 0; i < 4; i++) {
-					outputValue["display"]["score"][i] = 25000;
-					outputValue["content"][to_string(i)]["finalscore"] = 25000;
+					if (g.players[i].isLiZhi)
+						s[i] -= 1000;
 				}
-				// outputValue["display"]["prompt"] = promptsForDisplay;
+				for (int i = 0; i < 4; i++) {
+					outputValue["display"]["score"][i] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
+				}
 				cout << outputValue;
 				exit(0);
 			}
@@ -3414,12 +3472,51 @@ void roundInput(Json::Value &inputValue)
 					if (outputValue["display"][to_string(i)].isObject())
 						s[i] = outputValue["display"][to_string(i)]["ScoreCnt"].asInt();
 				if (s[roundStage % 4]) exit(1); // 不知道会不会出现这种奇怪的情况 roundStage % 4 放炮的
-				s[roundStage % 4] = -s[0] - s[1] - s[2] - s[3];
+												// 点炮情况就只需要考虑庄家分数要乘以1.5倍
+												// 庄家：maxScore = ceil(1.5 * maxScore / 300) * 300;
+												// 闲家：maxScore = ceil(maxScore / 200) * 100 + ceil(maxScore / 400) * 200;
+
+												// 放铳
+				for (int i = 0; i < 4; i++) {
+					if (i == g.changFeng) {
+						s[i] = ceil(6 * s[i] / 100.0) * 100;
+					}
+					else
+						s[i] = ceil(4 * s[i] / 100.0) * 100;
+					outputValue["display"][to_string(i)]["ScoreCnt"] = s[i];
+				}
+
+				s[roundStage % 4] = -s[0] - s[1] - s[2] - s[3]; // 有可能会出现一炮多响的情况
+				int lizhiScore = 0;
+				bool flag = false; // 立直的人胡牌了
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 统计有几根立直棒
+						lizhiScore += 1000;
+						if (s[i] > 0)
+							flag = true;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (s[i] > 0) { // 从东家逆时针，第一个胡牌的人获得所有点棒
+						s[i] += lizhiScore;
+						break;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 收取立直棒的点数
+						s[i] -= 1000;
+					}
+				}
 				for (int i = 0; i < 4; i++) {
 					outputValue["display"]["score"][i] = 25000 + s[i];
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
 				}
-				// outputValue["display"]["prompt"] = promptsForDisplay;
+				if (flag) {
+					Json::Value info;
+					show_hidden_dora_indicators(info);
+					outputValue["display"]["hiddenDoraIndicators"] = info["hiddenDoraIndicators"];
+				}
+
 				cout << outputValue;
 				exit(0);
 			}
@@ -3449,8 +3546,9 @@ void roundInput(Json::Value &inputValue)
 	}
 	else if (roundStage >= 8 && roundStage < 12) {
 		// 确认一下还能不能杠
-		if (g.numOfGang == 4)
+		if (g.numOfGang == 5) {
 			playerError(roundStage % 4, "WA");
+		}
 
 		for (int i = 0; i < 4; i++) {
 			checkInputGANG(inputValue[to_string(i)], i);
@@ -3463,12 +3561,45 @@ void roundInput(Json::Value &inputValue)
 					if (outputValue["display"][to_string(i)].isObject())
 						s[i] = outputValue["display"][to_string(i)]["ScoreCnt"].asInt();
 				if (s[roundStage % 4]) exit(1); // 不知道会不会出现这种奇怪的情况 roundStage % 4 放炮的
+				for (int i = 0; i < 4; i++) {
+					if (i == g.changFeng) {
+						s[i] = ceil(6 * s[i] / 100.0) * 100;
+					}
+					else
+						s[i] = ceil(4 * s[i] / 100.0) * 100;
+					outputValue["display"][to_string(i)]["ScoreCnt"] = s[i];
+				}
 				s[roundStage % 4] = -s[0] - s[1] - s[2] - s[3];
+				int lizhiScore = 0;
+				bool flag = false;
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 统计有几根立直棒
+						lizhiScore += 1000;
+						if (s[i] > 0)
+							flag = true;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (s[i] > 0) { // 从东家逆时针，第一个胡牌的人获得所有点棒
+						s[i] += lizhiScore;
+						break;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 收取立直棒的点数
+						s[i] -= 1000;
+					}
+				}
 				for (int i = 0; i < 4; i++) {
 					outputValue["display"]["score"][i] = 25000 + s[i];
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
 				}
-				// outputValue["display"]["prompt"] = promptsForDisplay;
+
+				if (flag) {
+					Json::Value info;
+					show_hidden_dora_indicators(info);
+					outputValue["display"]["hiddenDoraIndicators"] = info["hiddenDoraIndicators"];
+				}
 				cout << outputValue;
 				exit(0);
 			}
@@ -3477,8 +3608,6 @@ void roundInput(Json::Value &inputValue)
 	}
 	else if (roundStage >= 12 && roundStage < 16) {
 		// 立直情况类似直接出牌，但是需要另外做标记
-		g.players[roundStage % 4].isLiZhi = true;
-		g.players[roundStage % 4].numLiZhi = g.players[roundStage % 4].outTiles.size();
 
 		for (int i = 0; i < 4; i++) {
 			if (roundStage == i + 12) {
@@ -3496,16 +3625,53 @@ void roundInput(Json::Value &inputValue)
 					if (outputValue["display"][to_string(i)].isObject())
 						s[i] = outputValue["display"][to_string(i)]["ScoreCnt"].asInt();
 				if (s[roundStage % 4]) exit(1); // 不知道会不会出现这种奇怪的情况 roundStage % 4 放炮的
+				for (int i = 0; i < 4; i++) {
+					if (i == g.changFeng) {
+						s[i] = ceil(6 * s[i] / 100.0) * 100;
+					}
+					else
+						s[i] = ceil(4 * s[i] / 100.0) * 100;
+					outputValue["display"][to_string(i)]["ScoreCnt"] = s[i];
+				}
 				s[roundStage % 4] = -s[0] - s[1] - s[2] - s[3];
+
+				int lizhiScore = 0;
+				bool flag = false;
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 统计有几根立直棒
+						lizhiScore += 1000;
+						if (s[i] > 0)
+							flag = true;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (s[i] > 0) { // 从东家逆时针，第一个胡牌的人获得所有点棒
+						s[i] += lizhiScore;
+						break;
+					}
+				}
+				for (int i = 0; i < 4; i++) {
+					if (g.players[i].isLiZhi) { // 收取立直棒的点数
+						s[i] -= 1000;
+					}
+				}
 				for (int i = 0; i < 4; i++) {
 					outputValue["display"]["score"][roundStage % 4] = 25000 + s[i];
-					outputValue["content"][to_string(i)]["finalscore"] = 25000 + s[i];
+					outputValue["content"][to_string(i)] = 25000 + s[i];
 				}
-				// outputValue["display"]["prompt"] = promptsForDisplay;
+				if (flag) {
+					Json::Value info;
+					show_hidden_dora_indicators(info);
+					outputValue["display"]["hiddenDoraIndicators"] = info["hiddenDoraIndicators"];
+				}
 				cout << outputValue;
 				exit(0);
 			}
 		}
+		// 立直只有在他家没荣和时成立
+		g.players[roundStage % 4].isLiZhi = g.players[roundStage % 4].isYiFa = true;
+		g.players[roundStage % 4].numLiZhi = g.players[roundStage % 4].outTiles.size();
+
 		bool pass = true;
 		for (int i = 0; i < 4; i++) {
 			if (pass && roundStage != i + 4) {
@@ -3522,7 +3688,7 @@ void roundInput(Json::Value &inputValue)
 		}
 	}
 	else {
-		playerError(roundStage % 4, "roundStage is too big");
+		playerError(roundStage % 4, "ERR");
 	}
 }
 
@@ -3545,7 +3711,7 @@ int main()
 	//8-12:玩家杠牌，通知所有玩家
 	//13-16:玩家立直，通知所有玩家
 
-	// freopen("in_origin.json", "r", stdin);
+	// freopen("in.json", "r", stdin);
 	cin >> inputValue;
 	numRestTiles = 70;
 
@@ -3569,6 +3735,7 @@ int main()
 			for (auto & x : g.mountainTiles) {
 				// TODO：需要改，因为str要的是136张手牌，但是init_all之后只有74张
 				str = str + x + " ";
+				handTilesList.push_back(x);
 			}
 			str.pop_back();
 		}
@@ -3577,6 +3744,16 @@ int main()
 			quan = inputValue["initdata"]["quan"].asUInt();
 		else
 			quan = 0; // 默认为速东局
+	}
+	else {
+		g.init_mountain_tiles(randSeed);
+		for (auto & x : g.mountainTiles) {
+			// TODO：需要改，因为str要的是136张手牌，但是init_all之后只有74张
+			str = str + x + " ";
+			handTilesList.push_back(x);
+		}
+		str.pop_back();
+		quan = 0; // 默认为速东局
 	}
 
 	outputValue["command"] = "request";
@@ -3592,11 +3769,8 @@ int main()
 		outputValue["display"]["quan"] = outputValue["initdata"]["quan"] = quan;
 
 		for (int i = 0; i < 4; i++) {
-			promptsForPlayers[to_string(i)]["state"] = "0 " + to_string(i) + " " + to_string(quan);
-			outputValue["content"][to_string(i)] = promptsForPlayers[to_string(i)];
-			// outputValue["content"][to_string(i)] = "0 " + to_string(i) + " " + to_string(quan);
+			outputValue["content"][to_string(i)]["state"] = "0 " + to_string(i) + " " + to_string(quan);
 		}
-		outputValue["display"]["prompt"] = promptsForDisplay;
 		cout << outputValue;
 		return 0;
 	}
@@ -3611,21 +3785,24 @@ int main()
 	for (unsigned int i = 2; i < inputValue["log"].size(); i += 2) {
 		Json::Value tmp = outputValue;
 		outputValue["display"].clear();
-		for (int i = 0; i < 4; i++) {
-			outputValue["display"]["canHu"][i] = -4;
-		}
-		
+
 		roundOutput(tmp);
+		isPlayDrawnTileOnly = false;
 		roundInput(inputValue["log"][i + 1]);
 	}
+	promptsForDisplay.clear();
 	outputValue["display"].clear();
-	for (int i = 0; i < 4; i++) {
-		outputValue["display"]["canHu"][i] = -4;
-	}
 
 	roundOutput(outputValue);
 	outputValue["display"]["tileCnt"] = unsigned(g.mountainTiles.size() - 4);
 	outputValue["display"]["prompt"] = promptsForDisplay;
+	if (!outputValue["content"]["0"].isInt()) {
+		for (int i = 0; i < 4; i++) {
+			outputValue["content"][to_string(i)]["validact"] = promptsForDisplay[to_string(i)]["validact"];
+		}
+	}
+
 	cout << outputValue;
+	// cout << promptsForDisplay << endl;
 	return 0;
 }
