@@ -1,7 +1,7 @@
 # Riichi-Mahjong-judge
 日麻裁判程序 Botzone平台适用
 
-[Botzone指路](www.botzone.org.cn)
+[Botzone指路](https://www.botzone.org.cn)
 
 终版代码：
 - Mahjong.cpp 具体裁判，包含了以下文件
