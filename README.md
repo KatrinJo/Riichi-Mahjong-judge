@@ -3,11 +3,11 @@
 
 [Botzone指路](www.botzone.org.cn)
 
-核心文件：
+终版代码：
 - Mahjong.cpp 具体裁判，包含了以下文件
 说明：Botzone的裁判上传要么为一个代码文件，要么为一个可执行文件。Mahjong.cpp将所有代码集合到一个文件中。
 
-开发过程中的工具文件：
+开发过程中的工具代码：
 - mahjong.h
 - Player.cpp
 - Tools.cpp
